@@ -1,0 +1,83 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "awx-mcp"
+version = "24.6.1"
+description = "MCP server for AWX/Ansible Tower — 146 tools (142 default + 4 opt-in) for REST API v2"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [
+    { name = "argon (LY Corporation)", email = "dl_oss_dev@lycorp.co.jp" },
+]
+keywords = [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "ansible",
+    "awx",
+    "ansible-tower",
+    "automation",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Systems Administration",
+    "Typing :: Typed",
+]
+dependencies = [
+    "mcp>=1.0.0",
+    "requests>=2.33.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/lycorp-jp/awx-mcp"
+Repository = "https://github.com/lycorp-jp/awx-mcp"
+Documentation = "https://github.com/lycorp-jp/awx-mcp#readme"
+"Bug Tracker" = "https://github.com/lycorp-jp/awx-mcp/issues"
+Changelog = "https://github.com/lycorp-jp/awx-mcp/blob/main/CHANGELOG.md"
+
+[project.scripts]
+awx-mcp = "awx_mcp:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["awx_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["awx_mcp/"]
+ignore_missing_imports = true
+# Lenient baseline: existing tools use the `name: str = None` PEP 484 implicit-Optional
+# pattern across 50+ sites. Ratchet to `no_implicit_optional = true` and progressively
+# tighter checks in a future sprint (see CONTRIBUTING.md → "Type checking ratchet plan").
+no_implicit_optional = false
+warn_unused_ignores = true
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "ruff>=0.15.6,<0.16",
+    "mypy==1.13.0",
+    "types-requests>=2.31.0",
+    "responses>=0.25.0",
+]

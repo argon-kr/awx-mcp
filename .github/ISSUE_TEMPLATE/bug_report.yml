@@ -1,0 +1,86 @@
+name: Bug report
+description: Report a problem with awx-mcp
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report.
+
+        **Do not report security vulnerabilities here.** Use
+        [GitHub Security Advisories](https://github.com/lycorp-jp/awx-mcp/security/advisories/new)
+        instead — see [SECURITY.md](https://github.com/lycorp-jp/awx-mcp/blob/main/SECURITY.md).
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight checklist
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: This is a bug, not a security vulnerability (those go to Security Advisories).
+          required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear and concise description of the bug, including the full error message if any.
+      placeholder: When I call `launch_job`, the server returns ...
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps (tool call, arguments, config) that trigger the bug.
+      placeholder: |
+        1. Configure ANSIBLE_BASE_URL=...
+        2. Call tool `...` with `{...}`
+        3. See error
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: awx-mcp version
+      description: Output of `pip show awx-mcp` or the git commit SHA.
+    validations:
+      required: true
+  - type: dropdown
+    id: transport
+    attributes:
+      label: Transport
+      options:
+        - stdio
+        - streamable-http
+        - sse
+        - not sure
+    validations:
+      required: true
+  - type: input
+    id: awx-version
+    attributes:
+      label: AWX / Ansible Tower version
+      placeholder: e.g. AWX 24.6.1
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: e.g. 3.12.3
+  - type: input
+    id: client
+    attributes:
+      label: MCP client
+      placeholder: e.g. Claude Desktop, Cursor, VS Code
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste any relevant log output. **Redact tokens, passwords, and hostnames.**
+      render: shell

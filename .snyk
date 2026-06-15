@@ -1,0 +1,12 @@
+# Snyk (https://snyk.io) policy file, patches or ignores known vulnerabilities.
+version: v1.25.1
+ignore:
+  snyk:lic:pip:certifi:MPL-2.0:
+    - '*':
+        reason: >-
+          MPL-2.0 is Apache-2.0 Category B compatible per
+          https://www.apache.org/legal/resolved.html. certifi is a transitive
+          dependency from requests and httpx (not a direct dependency).
+        expires: 2027-03-11T00:00:00.000Z
+        created: 2026-03-11T09:06:59.258Z
+patch: {}

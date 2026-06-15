@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/lycorp-jp/awx-mcp/security/advisories/new
+    about: Report security vulnerabilities privately via GitHub Security Advisories — never in a public issue.
+  - name: Question / discussion
+    url: https://github.com/lycorp-jp/awx-mcp/discussions
+    about: Ask usage questions or discuss ideas before opening an issue.
