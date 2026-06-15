@@ -1,0 +1,12 @@
+# Code owners for awx-mcp.
+# These accounts are requested for review automatically on every PR.
+# Docs: https://docs.github.com/articles/about-code-owners
+
+*                       @argon-kr @lheure
+
+# Security-sensitive surfaces — keep both maintainers on the review.
+/SECURITY.md            @argon-kr @lheure
+/awx_mcp/client.py      @argon-kr @lheure
+/awx_mcp/tools/credentials.py  @argon-kr @lheure
+/awx_mcp/tools/users.py        @argon-kr @lheure
+/.github/               @argon-kr @lheure

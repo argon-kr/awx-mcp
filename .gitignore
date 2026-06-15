@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.eggs/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+.env
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# Linting / Type checking
+.ruff_cache/
+.mypy_cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code / OMC
+.claude/
+.omc/
+AGENTS.md
+awx_mcp/tools/AGENTS.md
+
+# Project-specific
+# Upstream AWX reference clone (not part of this project)
+awx/
+# Other MCP servers cloned locally for reference (not part of this project)
+other-mcp/
+# Internal planning notes (not for publication)
+Plan.md

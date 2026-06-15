@@ -1,0 +1,481 @@
+# SPDX-License-Identifier: Apache-2.0
+
+"""
+Ansible MCP Server - API Client
+
+AnsibleClient class for communicating with the AWX/Tower REST API,
+token caching, and pagination handling.
+"""
+
+import atexit
+import json
+import os
+import re
+import threading
+import time
+from contextlib import contextmanager
+from typing import Any
+from urllib.parse import urljoin, urlparse
+
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+from .exceptions import (
+    AnsibleAPIError,
+    AnsibleAuthError,
+    AnsibleHTTPError,
+    AnsibleValidationError,
+)
+from .server import (
+    ANSIBLE_BASE_URL,
+    ANSIBLE_PASSWORD,
+    ANSIBLE_SSL_VERIFY,
+    ANSIBLE_TOKEN,
+    ANSIBLE_USERNAME,
+    logger,
+)
+
+DEFAULT_CONNECT_TIMEOUT = 10
+DEFAULT_READ_TIMEOUT = int(os.environ.get("AWX_HTTP_TIMEOUT_READ", "90"))
+
+_RETRY_STATUS = frozenset({429, 502, 503, 504})
+_RETRY_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def _build_retry_adapter() -> HTTPAdapter:
+    """Configure urllib3 Retry: 3 retries, exponential backoff with jitter,
+    honor Retry-After, only on safe methods."""
+    retry = Retry(
+        total=3,
+        status_forcelist=list(_RETRY_STATUS),
+        allowed_methods=_RETRY_METHODS,
+        backoff_factor=0.5,
+        respect_retry_after_header=True,
+        raise_on_status=False,
+    )
+    return HTTPAdapter(max_retries=retry)
+
+
+class AnsibleClient:
+    """HTTP client for Ansible Tower/AWX REST API."""
+
+    def __init__(
+        self,
+        base_url: str,
+        username: str = None,
+        password: str = None,
+        token: str = None,
+    ):
+        # Normalize: accept ANSIBLE_BASE_URL with or without a trailing slash.
+        # All endpoints are joined as f"{base_url}/api/...", so a trailing slash
+        # would otherwise produce a double slash ("//api/...").
+        self.base_url = base_url.rstrip("/")
+        self.username = username
+        self.password = password
+        self.token: str | None = token
+        self._token_id: int | None = None
+        self.session = requests.Session()
+        self.session.verify = ANSIBLE_SSL_VERIFY
+        adapter = _build_retry_adapter()
+        self.session.mount("http://", adapter)
+        self.session.mount("https://", adapter)
+
+    def __enter__(self):
+        if not self.token and self.username and self.password:
+            self.get_token()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.session.close()
+
+    def get_token(self) -> str | None:
+        """Authenticate and get token using web session approach."""
+        logger.debug("Authenticating with username/password...")
+
+        # Step 1: Get the CSRF token
+        login_page = self.session.get(f"{self.base_url}/api/login/")
+
+        # Get CSRF token from cookies
+        csrf_token = None
+        if "csrftoken" in login_page.cookies:
+            csrf_token = login_page.cookies["csrftoken"]
+        else:
+            # Try to find it in the content
+            match = re.search(
+                r'name="csrfmiddlewaretoken" value="([^"]+)"', login_page.text
+            )
+            if match:
+                csrf_token = match.group(1)
+
+        if not csrf_token:
+            raise AnsibleAuthError("Could not obtain CSRF token")
+
+        # Step 2: Perform login
+        headers = {"Referer": f"{self.base_url}/api/login/", "X-CSRFToken": csrf_token}
+
+        login_data = {
+            "username": self.username,
+            "password": self.password,
+            "next": "/api/v2/",
+        }
+
+        login_response = self.session.post(
+            f"{self.base_url}/api/login/",
+            data=login_data,
+            headers=headers,
+            allow_redirects=False,
+        )
+
+        if login_response.status_code >= 400:
+            raise AnsibleAuthError(
+                f"Login failed: {login_response.status_code} - {login_response.text}",
+                status_code=login_response.status_code,
+            )
+
+        # Step 3: Generate API token
+        token_headers = {
+            "Content-Type": "application/json",
+            "Referer": f"{self.base_url}/api/v2/",
+        }
+
+        # Use the updated CSRF token
+        if "csrftoken" in self.session.cookies:
+            token_headers["X-CSRFToken"] = self.session.cookies["csrftoken"]
+
+        token_data = {
+            "description": "MCP Server Token",
+            "application": None,
+            "scope": "write",
+        }
+
+        token_response = self.session.post(
+            f"{self.base_url}/api/v2/tokens/", json=token_data, headers=token_headers
+        )
+
+        if token_response.status_code == 201:
+            resp_json = token_response.json()
+            self.token = resp_json.get("token")
+            self._token_id = resp_json.get("id")
+            logger.debug("Token obtained successfully (id=%s)", self._token_id)
+            if self._token_id is not None:
+                _atexit_revoke_targets.append(
+                    (self.base_url, self.token, self._token_id)
+                )
+            return self.token
+        else:
+            raise AnsibleAuthError(
+                f"Token creation failed: {token_response.status_code}"
+                f" - {token_response.text}",
+                status_code=token_response.status_code,
+            )
+
+    def _validate_url(self, url: str) -> str:
+        """Validate that URL matches base_url origin (scheme, hostname, port)."""
+        parsed_base = urlparse(self.base_url)
+        parsed_url = urlparse(url)
+        if (
+            parsed_url.scheme != parsed_base.scheme
+            or parsed_url.hostname != parsed_base.hostname
+            or parsed_url.port != parsed_base.port
+        ):
+            raise ValueError(
+                f"URL origin mismatch: {url} does not match base URL {self.base_url}"
+            )
+        return url
+
+    def get_headers(self) -> dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        return headers
+
+    def request(
+        self,
+        method: str,
+        endpoint: str,
+        params: dict | None = None,
+        data: dict | None = None,
+    ) -> dict[str, Any]:
+        """Make a request to the Ansible API."""
+        url = self._validate_url(urljoin(self.base_url, endpoint))
+        headers = self.get_headers()
+
+        logger.debug("%s %s", method, url)
+
+        try:
+            response = self.session.request(
+                method=method,
+                url=url,
+                headers=headers,
+                params=params,
+                json=data,
+                timeout=(DEFAULT_CONNECT_TIMEOUT, DEFAULT_READ_TIMEOUT),
+            )
+        except requests.exceptions.Timeout as e:
+            raise AnsibleHTTPError(
+                f"Ansible API timeout after {DEFAULT_READ_TIMEOUT}s: {method} {url}",
+            ) from e
+        except requests.exceptions.RequestException as e:
+            raise AnsibleHTTPError(
+                f"Ansible API request error: {method} {url} — {e}",
+            ) from e
+
+        if response.status_code >= 400:
+            error_message = (
+                f"Ansible API error: {response.status_code} - {response.text}"
+            )
+            logger.error(error_message)
+            if response.status_code in (401, 403):
+                raise AnsibleAuthError(error_message, status_code=response.status_code)
+            elif response.status_code == 400:
+                raise AnsibleValidationError(error_message, status_code=400)
+            else:
+                raise AnsibleHTTPError(error_message, status_code=response.status_code)
+
+        if response.status_code == 204:  # No content
+            return {"status": "success"}
+
+        # Handle empty responses
+        if not response.text.strip():
+            return {"status": "success", "message": "Empty response"}
+
+        # Try to parse as JSON, but handle non-JSON responses gracefully
+        try:
+            return response.json()
+        except json.JSONDecodeError:
+            return {
+                "status": "success",
+                "content_type": response.headers.get("Content-Type", "unknown"),
+                "text": response.text[:1000],
+            }
+
+
+# Token cache for reuse across tool calls
+_cached_token = None
+_cached_token_id = None
+
+_token_cache_lock = threading.Lock()
+_atexit_revoke_targets: list[
+    tuple[str, str | None, int]
+] = []  # (base_url, token, token_id)
+
+
+def _revoke_token_at_shutdown(base_url: str, token: str | None, token_id: int) -> None:
+    """Best-effort token revocation called by atexit.
+
+    Uses a fresh ``requests.request(...)`` call (NOT a shared Session) because
+    the session's connection pool may already be torn down at interpreter
+    shutdown. Errors are swallowed; this is best-effort cleanup.
+
+    Race: if a tool call is mid-flight when atexit fires, the in-flight
+    call may see 401 on its next page. Acceptable because shutdown is
+    terminal.
+
+    Limitation: SIGKILL or OOM-kill bypasses atexit, leaving the token live
+    on AWX until its server-side TTL expires. Operators should monitor
+    /api/v2/tokens/ periodically.
+    """
+    if not token_id:
+        return
+    delete_url = f"{base_url.rstrip('/')}/api/v2/tokens/{token_id}/"
+    try:
+        resp = requests.request(
+            "DELETE",
+            delete_url,
+            headers={"Authorization": f"Bearer {token}"},
+            verify=ANSIBLE_SSL_VERIFY,
+            timeout=5,
+        )
+        logger.debug("Token %s revoke status: %s", token_id, resp.status_code)
+    except Exception as e:  # noqa: BLE001 — best-effort cleanup
+        logger.debug("Token %s revoke failed (best-effort): %s", token_id, e)
+
+
+def _atexit_drain() -> None:
+    """Iterate over registered revoke targets at process exit."""
+    for base_url, token, token_id in _atexit_revoke_targets:
+        _revoke_token_at_shutdown(base_url, token, token_id)
+
+
+atexit.register(_atexit_drain)
+
+
+@contextmanager
+def get_ansible_client():
+    """Get an initialized Ansible API client with token reuse."""
+    global _cached_token, _cached_token_id
+
+    # If we have a static token from env, always use it
+    if ANSIBLE_TOKEN:
+        client = AnsibleClient(
+            base_url=ANSIBLE_BASE_URL,
+            username=ANSIBLE_USERNAME,
+            password=ANSIBLE_PASSWORD,
+            token=ANSIBLE_TOKEN,
+        )
+        with client:
+            yield client
+        return
+
+    # Snapshot the cache under the lock; do NOT hold the lock during HTTP I/O
+    with _token_cache_lock:
+        cached_token = _cached_token
+
+    if cached_token:
+        client = AnsibleClient(
+            base_url=ANSIBLE_BASE_URL,
+            username=ANSIBLE_USERNAME,
+            password=ANSIBLE_PASSWORD,
+            token=cached_token,
+        )
+        try:
+            client.__enter__()
+            client.request("GET", "/api/v2/ping/")
+        except AnsibleAPIError:
+            logger.debug("Cached token expired, refreshing...")
+            with _token_cache_lock:
+                # invalidate only if our snapshot is still the current cache
+                if _cached_token == cached_token:
+                    _cached_token = None
+                    _cached_token_id = None
+            client.__exit__(None, None, None)
+        else:
+            try:
+                yield client
+            finally:
+                client.__exit__(None, None, None)
+            return
+
+    # Need to mint a new token. Acquire lock for the mint to serialize concurrent
+    # refreshes; double-check inside the lock in case another thread minted.
+    with _token_cache_lock:
+        if _cached_token:
+            existing_token = _cached_token
+        else:
+            existing_token = None
+
+    if existing_token:
+        # Another thread minted while we were trying — re-use it.
+        client = AnsibleClient(
+            base_url=ANSIBLE_BASE_URL,
+            username=ANSIBLE_USERNAME,
+            password=ANSIBLE_PASSWORD,
+            token=existing_token,
+        )
+        with client:
+            yield client
+        return
+
+    # Fall through: this thread mints. Use the lock to serialize the mint
+    # itself (only one thread should call get_token() at a time to avoid AWX
+    # creating duplicate tokens).
+    with _token_cache_lock:
+        # final check
+        if _cached_token:
+            client = AnsibleClient(
+                base_url=ANSIBLE_BASE_URL,
+                username=ANSIBLE_USERNAME,
+                password=ANSIBLE_PASSWORD,
+                token=_cached_token,
+            )
+            mint = False
+        else:
+            client = AnsibleClient(
+                base_url=ANSIBLE_BASE_URL,
+                username=ANSIBLE_USERNAME,
+                password=ANSIBLE_PASSWORD,
+            )
+            mint = True
+
+        if mint:
+            # authenticates via get_token() — mutates self.token + self._token_id
+            client.__enter__()
+            _cached_token = client.token
+            _cached_token_id = client._token_id
+
+    if mint:
+        try:
+            yield client
+        finally:
+            client.__exit__(None, None, None)
+    else:
+        with client:
+            yield client
+
+
+def handle_pagination(
+    client: AnsibleClient, endpoint: str, params: dict | None = None
+) -> list[dict[str, Any]]:
+    """Handle paginated results from Ansible API.
+
+    Translates tool-level 'limit'/'offset' into AWX-native 'page_size'/'page'.
+    Respects the 'limit' parameter: stops collecting once the limit is reached.
+
+    Cumulative budget = DEFAULT_READ_TIMEOUT * 2 seconds. If exceeded, returns
+    a partial-results envelope: ``[{"error": "pagination_timeout", "partial": True,
+    "pages_fetched": N, "results": [...]}]``.
+    """
+    if params is None:
+        params = {}
+
+    # Extract custom pagination params (not native AWX API params)
+    max_results = params.pop("limit", None)
+    offset = params.pop("offset", 0)
+
+    # Zero-limit guard: caller asked for nothing, skip HTTP entirely.
+    if max_results is not None and max_results <= 0:
+        return []
+
+    # Convert to AWX-native pagination params
+    page_size = min(max_results, 200) if max_results else 200
+    params["page_size"] = page_size
+
+    if offset > 0:
+        params["page"] = (offset // page_size) + 1
+        skip_in_page = offset % page_size
+    else:
+        skip_in_page = 0
+
+    results: list[dict[str, Any]] = []
+    next_url: str | None = endpoint
+    first_page = True
+    pages_fetched = 0
+
+    budget_seconds = DEFAULT_READ_TIMEOUT * 2
+    started_at = time.monotonic()
+
+    while next_url:
+        if time.monotonic() - started_at > budget_seconds:
+            return [
+                {
+                    "error": "pagination_timeout",
+                    "partial": True,
+                    "pages_fetched": pages_fetched,
+                    "results": results,
+                    "budget_seconds": budget_seconds,
+                }
+            ]
+
+        response = client.request("GET", next_url, params=params)
+        pages_fetched += 1
+        if "results" in response:
+            page_results = response["results"]
+            # Skip partial offset within the first page
+            if first_page and skip_in_page > 0:
+                page_results = page_results[skip_in_page:]
+                first_page = False
+            results.extend(page_results)
+        else:
+            return [response]
+
+        # If a limit was specified, stop once we have enough results
+        if max_results is not None and len(results) >= max_results:
+            results = results[:max_results]
+            break
+
+        next_url = response.get("next")
+        if next_url:
+            params = None
+
+    return results
