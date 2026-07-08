@@ -4,14 +4,14 @@
 
 ![Python](https://img.shields.io/badge/Python-≥3.10-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-Apache_2.0-blue)
-![MCP Tools](https://img.shields.io/badge/MCP_Tools-146-blue)
+![MCP Tools](https://img.shields.io/badge/MCP_Tools-145-blue)
 ![AWX](https://img.shields.io/badge/AWX-24.x-EE0000?logo=redhat&logoColor=white)
 
 LLM이 AWX 인스턴스와 상호작용할 수 있도록 하는 MCP(Model Context Protocol) 서버입니다.
 
-**146개의 도구**를 통해 인벤토리, 호스트, 프로젝트, 작업 템플릿, 워크플로우, 자격 증명, 실행 환경, RBAC, 시스템 관리 등 AWX의 모든 주요 기능을 지원합니다.
+**145개의 도구**를 통해 인벤토리, 호스트, 프로젝트, 작업 템플릿, 워크플로우, 자격 증명, 실행 환경, RBAC, 시스템 관리 등 AWX의 모든 주요 기능을 지원합니다.
 
-> 기본값으로는 141개 도구가 등록됩니다. 나머지는 두 개의 opt-in 플래그로 활성화됩니다: `AWX_MCP_ENABLE_CREDENTIAL_MANAGEMENT=true`는 Form mode elicitation으로 민감 데이터를 수집하는 4개의 자격 증명/사용자 쓰기 도구(`create_credential`, `update_credential`, `create_user`, `update_user`)를 추가합니다 ([Credential Management (opt-in)](#credential-management-opt-in) 섹션 참고). `AWX_MCP_ENABLE_AD_HOC_COMMAND=true`는 여러 호스트에 걸쳐 명령을 실행하는 `run_ad_hoc_command`를 추가합니다 ([Ad Hoc Command Execution (opt-in)](#ad-hoc-command-execution-opt-in) 섹션 참고).
+> 기본값으로는 140개 도구가 등록됩니다. 나머지는 두 개의 opt-in 플래그로 활성화됩니다: `AWX_MCP_ENABLE_CREDENTIAL_MANAGEMENT=true`는 Form mode elicitation으로 민감 데이터를 수집하는 4개의 자격 증명/사용자 쓰기 도구(`create_credential`, `update_credential`, `create_user`, `update_user`)를 추가합니다 ([Credential Management (opt-in)](#credential-management-opt-in) 섹션 참고). `AWX_MCP_ENABLE_AD_HOC_COMMAND=true`는 여러 호스트에 걸쳐 명령을 실행하는 `run_ad_hoc_command`를 추가합니다 ([Ad Hoc Command Execution (opt-in)](#ad-hoc-command-execution-opt-in) 섹션 참고).
 
 ---
 
@@ -94,7 +94,7 @@ flowchart LR
     User([사용자])
     LLM[LLM<br/>Claude / GPT 등]
     MCP[MCP Client<br/>Claude Desktop<br/>Claude Code<br/>Cline 등]
-    AWX_MCP["AWX MCP Server<br/>(awx-mcp)<br/>146개 도구 (기본 141 + opt-in 5)"]
+    AWX_MCP["AWX MCP Server<br/>(awx-mcp)<br/>145개 도구 (기본 140 + opt-in 5)"]
     AWX[AWX<br/>REST API v2]
 
     User -- 자연어 요청 --> LLM
@@ -265,7 +265,7 @@ uv run awx-mcp --transport streamable-http --host 0.0.0.0 --port 8443
 
 ## Credential Management (opt-in)
 
-4개의 도구 — `create_credential`, `update_credential`, `create_user`, `update_user` — 는 **Form mode elicitation**을 통해 민감 데이터(비밀번호, 자격 증명 입력)를 수집합니다. 이 도구들은 기본적으로 **등록되지 않으므로**, 기본 141개 도구는 민감 데이터를 다루는 도구를 전혀 노출하지 않습니다.
+4개의 도구 — `create_credential`, `update_credential`, `create_user`, `update_user` — 는 **Form mode elicitation**을 통해 민감 데이터(비밀번호, 자격 증명 입력)를 수집합니다. 이 도구들은 기본적으로 **등록되지 않으므로**, 기본 140개 도구는 민감 데이터를 다루는 도구를 전혀 노출하지 않습니다.
 
 활성화하려면 다음을 설정하세요:
 
@@ -444,10 +444,10 @@ MCP 클라이언트(Claude 등)에 자연어로 요청하면 서버가 적절한
 
 ## 도구 목록
 
-총 **146개** 도구를 20개 모듈로 제공합니다. 기본값으로 141개가 등록되며, 아래에서 **opt-in**으로 표시된 5개는 각자의 플래그가 설정될 때만 노출됩니다 — 4개는 `AWX_MCP_ENABLE_CREDENTIAL_MANAGEMENT=true`([Credential Management (opt-in)](#credential-management-opt-in) 섹션 참조), 1개는 `AWX_MCP_ENABLE_AD_HOC_COMMAND=true`([Ad Hoc Command Execution (opt-in)](#ad-hoc-command-execution-opt-in) 섹션 참조).
+총 **145개** 도구를 20개 모듈로 제공합니다. 기본값으로 140개가 등록되며, 아래에서 **opt-in**으로 표시된 5개는 각자의 플래그가 설정될 때만 노출됩니다 — 4개는 `AWX_MCP_ENABLE_CREDENTIAL_MANAGEMENT=true`([Credential Management (opt-in)](#credential-management-opt-in) 섹션 참조), 1개는 `AWX_MCP_ENABLE_AD_HOC_COMMAND=true`([Ad Hoc Command Execution (opt-in)](#ad-hoc-command-execution-opt-in) 섹션 참조).
 
 <details>
-<summary><strong>전체 146개 도구 보기</strong></summary>
+<summary><strong>전체 145개 도구 보기</strong></summary>
 
 ### 인벤토리 & 인벤토리 소스 관리 (14개) - `inventories.py`
 
@@ -680,7 +680,7 @@ MCP 클라이언트(Claude 등)에 자연어로 요청하면 서버가 적절한
 | `list_instance_groups` | 인스턴스 그룹 목록 |
 | `get_instance_group` | 특정 인스턴스 그룹 상세 조회 |
 
-### 시스템 관리 (10개) - `system.py`
+### 시스템 관리 (9개) - `system.py`
 
 | 도구 | 설명 |
 |------|------|
@@ -688,7 +688,6 @@ MCP 클라이언트(Claude 등)에 자연어로 요청하면 서버가 적절한
 | `get_config` | AWX 설정 정보 조회 |
 | `get_ansible_version` | AWX 버전 정보 조회 |
 | `get_dashboard_stats` | 대시보드 통계 조회 |
-| `get_metrics` | 시스템 메트릭 조회 |
 | `list_system_job_templates` | 시스템 작업 템플릿 목록 (정리, 분석 등) |
 | `get_system_job_template` | 특정 시스템 작업 템플릿 상세 조회 |
 | `launch_system_job` | 시스템 유지보수 작업 실행 |

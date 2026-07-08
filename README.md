@@ -2,16 +2,16 @@
 
 ![Python](https://img.shields.io/badge/Python-≥3.10-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-Apache_2.0-blue)
-![MCP Tools](https://img.shields.io/badge/MCP_Tools-146-blue)
+![MCP Tools](https://img.shields.io/badge/MCP_Tools-145-blue)
 ![AWX](https://img.shields.io/badge/AWX-24.x-EE0000?logo=redhat&logoColor=white)
 
 An MCP (Model Context Protocol) server that lets LLMs interact with AWX instances.
 
 [🇰🇷 한국어](README.ko.md) | [🇯🇵 日本語](README.ja.md)
 
-**146 tools** covering every major AWX capability: inventories, hosts, projects, job templates, workflows, credentials, execution environments, RBAC, and system administration.
+**145 tools** covering every major AWX capability: inventories, hosts, projects, job templates, workflows, credentials, execution environments, RBAC, and system administration.
 
-> 141 tools are enabled by default. Two opt-in flags unlock the rest: `AWX_MCP_ENABLE_CREDENTIAL_MANAGEMENT=true` adds 4 credential/user write tools (`create_credential`, `update_credential`, `create_user`, `update_user`) that collect sensitive data via Form-mode elicitation (see [Credential Management](#credential-management-opt-in)); `AWX_MCP_ENABLE_AD_HOC_COMMAND=true` adds `run_ad_hoc_command`, which executes commands across a fleet of hosts (see [Ad Hoc Command Execution](#ad-hoc-command-execution-opt-in)).
+> 140 tools are enabled by default. Two opt-in flags unlock the rest: `AWX_MCP_ENABLE_CREDENTIAL_MANAGEMENT=true` adds 4 credential/user write tools (`create_credential`, `update_credential`, `create_user`, `update_user`) that collect sensitive data via Form-mode elicitation (see [Credential Management](#credential-management-opt-in)); `AWX_MCP_ENABLE_AD_HOC_COMMAND=true` adds `run_ad_hoc_command`, which executes commands across a fleet of hosts (see [Ad Hoc Command Execution](#ad-hoc-command-execution-opt-in)).
 
 ---
 
@@ -94,7 +94,7 @@ flowchart LR
     User([User])
     LLM[LLM<br/>Claude / GPT / etc.]
     MCP[MCP Client<br/>Claude Desktop<br/>Claude Code<br/>Cline / etc.]
-    AWX_MCP["AWX MCP Server<br/>(awx-mcp)<br/>146 tools (141 default + 5 opt-in)"]
+    AWX_MCP["AWX MCP Server<br/>(awx-mcp)<br/>145 tools (140 default + 5 opt-in)"]
     AWX[AWX<br/>REST API v2]
 
     User -- natural language request --> LLM
@@ -265,7 +265,7 @@ Each entry also carries a `kind` field: `"tool"` for regular MCP tool calls, and
 
 ## Credential Management (opt-in)
 
-Four tools — `create_credential`, `update_credential`, `create_user`, `update_user` — collect sensitive data (passwords, credential inputs) via **Form-mode elicitation**. They are **not registered** by default, so the default 141-tool surface exposes nothing that handles sensitive data.
+Four tools — `create_credential`, `update_credential`, `create_user`, `update_user` — collect sensitive data (passwords, credential inputs) via **Form-mode elicitation**. They are **not registered** by default, so the default 140-tool surface exposes nothing that handles sensitive data.
 
 To enable them, set:
 
@@ -444,10 +444,10 @@ Send natural language requests to your MCP client (Claude, etc.) and the server 
 
 ## Tools
 
-**146 tools** across 20 modules. By default 141 are registered; the 5 marked **opt-in** below appear only when their respective flags are set — 4 via `AWX_MCP_ENABLE_CREDENTIAL_MANAGEMENT=true` (see [Credential Management](#credential-management-opt-in)) and 1 via `AWX_MCP_ENABLE_AD_HOC_COMMAND=true` (see [Ad Hoc Command Execution](#ad-hoc-command-execution-opt-in)).
+**145 tools** across 20 modules. By default 140 are registered; the 5 marked **opt-in** below appear only when their respective flags are set — 4 via `AWX_MCP_ENABLE_CREDENTIAL_MANAGEMENT=true` (see [Credential Management](#credential-management-opt-in)) and 1 via `AWX_MCP_ENABLE_AD_HOC_COMMAND=true` (see [Ad Hoc Command Execution](#ad-hoc-command-execution-opt-in)).
 
 <details>
-<summary><strong>Show all 146 tools</strong></summary>
+<summary><strong>Show all 145 tools</strong></summary>
 
 ### Inventories & Inventory Sources (14) - `inventories.py`
 
@@ -680,7 +680,7 @@ Send natural language requests to your MCP client (Claude, etc.) and the server 
 | `list_instance_groups` | List instance groups |
 | `get_instance_group` | Get details of a specific instance group |
 
-### System Administration (10) - `system.py`
+### System Administration (9) - `system.py`
 
 | Tool | Description |
 |------|-------------|
@@ -688,7 +688,6 @@ Send natural language requests to your MCP client (Claude, etc.) and the server 
 | `get_config` | Get AWX configuration |
 | `get_ansible_version` | Get AWX version information |
 | `get_dashboard_stats` | Get dashboard statistics |
-| `get_metrics` | Get system metrics |
 | `list_system_job_templates` | List system job templates (cleanup, analytics, etc.) |
 | `get_system_job_template` | Get details of a specific system job template |
 | `launch_system_job` | Launch a system maintenance job |

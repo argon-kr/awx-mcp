@@ -288,10 +288,7 @@ class AnsibleClient:
         if not response.text.strip():
             return {"status": "success", "message": "Empty response"}
 
-        # Try to parse as JSON, but handle non-JSON responses gracefully. For
-        # endpoints that legitimately return text (e.g. Prometheus /metrics/),
-        # use request_text() to get the full body instead of this truncated
-        # fallback.
+        # Try to parse as JSON, but handle non-JSON responses gracefully.
         try:
             return response.json()
         except json.JSONDecodeError:
@@ -300,16 +297,6 @@ class AnsibleClient:
                 "content_type": response.headers.get("Content-Type", "unknown"),
                 "text": response.text[:1000],
             }
-
-    def request_text(
-        self,
-        method: str,
-        endpoint: str,
-        params: dict | None = None,
-    ) -> str:
-        """Return the full raw response body as text — no JSON parsing, no
-        truncation. Use for text endpoints such as ``/api/v2/metrics/``."""
-        return self._send(method, endpoint, params).text
 
 
 # Token cache for reuse across tool calls

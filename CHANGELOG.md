@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org).
   `create_user`, `update_user`) are now opt-in via
   `AWX_MCP_ENABLE_CREDENTIAL_MANAGEMENT=true` (default: `false`). Combined
   with the `run_ad_hoc_command` gating below, the default deployment
-  registers 141 of 146 tools and exposes no tool that handles sensitive data.
+  registers 140 of 145 tools and exposes no tool that handles sensitive data.
 - When the flag is enabled, the server logs a stderr warning noting that the
   gated tools use Form-mode elicitation, which is not spec-compliant for
   sensitive data per the MCP specification. See [SECURITY.md](SECURITY.md).
@@ -28,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 - `run_ad_hoc_command` (fleet-wide ad hoc Ansible execution) is now opt-in via
   `AWX_MCP_ENABLE_AD_HOC_COMMAND=true` (default: `false`); it is unregistered
   by default and the server logs a startup warning when the flag is enabled.
-  The default deployment now registers 141 of 146 tools.
+  The default deployment now registers 140 of 145 tools.
 - In read-only mode (`AWX_MCP_READ_ONLY=true`), the AWX token minted via
   username/password auth now requests `scope: "read"` instead of `"write"`.
 - AWX error response bodies are now secret-masked (bearer tokens, `token=`,
@@ -66,9 +66,13 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 - Concurrent token refresh is serialized with a lock to avoid minting duplicate
   tokens.
 
+### Removed
+- Removed the `get_metrics` tool. Prometheus `/metrics/` exposition is a
+  scraper-oriented ~53KB payload that overflows the MCP result budget and
+  duplicates `get_dashboard_stats` / `get_ansible_version` for the useful
+  counts. Tool count: 146 → 145.
+
 ### Fixed
-- `get_metrics` now returns the full Prometheus text response (was truncated
-  to 1000 characters).
 - `list_workflow_approval_templates` now applies filters before `limit`/
   `offset` (previously could return incomplete lists).
 - Subpath AWX base URLs (e.g. `https://host/awx`) are now preserved end-to-end

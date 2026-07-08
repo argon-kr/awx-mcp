@@ -25,7 +25,7 @@ All 4 credential/user write tools (`create_credential`, `update_credential`,
 — which executes an ad hoc Ansible command against some or all hosts in an
 inventory, i.e. fleet-wide remote code execution — is gated behind
 `AWX_MCP_ENABLE_AD_HOC_COMMAND=true` (default: off). The default deployment
-registers 141 of 146 tools and exposes no tool that handles sensitive data or
+registers 140 of 145 tools and exposes no tool that handles sensitive data or
 executes commands across a fleet of hosts.
 
 ## Sensitive Data

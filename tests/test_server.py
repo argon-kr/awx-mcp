@@ -99,26 +99,26 @@ def test_truthy_aliases_register_gated_tools():
             assert name in tools, f"{name} should register for env value {value!r}"
 
 
-def test_default_total_tool_count_is_141():
-    # Both sensitive-tool flags off: 146 total - 4 credential/user - 1 ad hoc.
+def test_default_total_tool_count_is_140():
+    # Both sensitive-tool flags off: 145 total - 4 credential/user - 1 ad hoc.
     tools = _list_registered_tools(env_value=None)
-    assert len(tools) == 141, (
-        f"Expected 141 tools with both gates disabled, got {len(tools)}"
+    assert len(tools) == 140, (
+        f"Expected 140 tools with both gates disabled, got {len(tools)}"
     )
 
 
-def test_credential_management_enabled_tool_count_is_145():
-    # Credential management on, ad hoc still off: 141 + 4.
+def test_credential_management_enabled_tool_count_is_144():
+    # Credential management on, ad hoc still off: 140 + 4.
     tools = _list_registered_tools(env_value="true")
-    assert len(tools) == 145, (
-        f"Expected 145 tools with credential management enabled, got {len(tools)}"
+    assert len(tools) == 144, (
+        f"Expected 144 tools with credential management enabled, got {len(tools)}"
     )
 
 
-def test_all_gates_enabled_tool_count_is_146():
+def test_all_gates_enabled_tool_count_is_145():
     tools = _list_registered_tools(env_value="true", ad_hoc_value="true")
-    assert len(tools) == 146, (
-        f"Expected 146 tools with all gates enabled, got {len(tools)}"
+    assert len(tools) == 145, (
+        f"Expected 145 tools with all gates enabled, got {len(tools)}"
     )
 
 

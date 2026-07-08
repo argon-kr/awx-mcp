@@ -8,8 +8,7 @@ Covers:
   rejection.
 - ``_resolve_url``/``request``: a subpath base URL (``https://h/awx``) keeps its
   path prefix when joined with an ``/api/...`` endpoint.
-- ``request_text``: returns the full body untruncated for non-JSON, where
-  ``request`` would truncate to 1000 chars.
+- ``request``: parses JSON, and truncates a non-JSON fallback body to 1000 chars.
 - Error masking: a 4xx body echoing a token / Bearer header / password is masked
   both in the raised exception message and in the diagnostic log record.
 """
@@ -106,7 +105,7 @@ def test_request_preserves_subpath_prefix_in_resolved_url(mock_session_cls):
 
 
 # --------------------------------------------------------------------------- #
-# request / request_text bodies
+# request bodies
 # --------------------------------------------------------------------------- #
 @patch("awx_mcp.client.requests.Session")
 def test_request_returns_parsed_json(mock_session_cls):
@@ -119,25 +118,9 @@ def test_request_returns_parsed_json(mock_session_cls):
 
 
 @patch("awx_mcp.client.requests.Session")
-def test_request_text_returns_full_untruncated_body(mock_session_cls):
-    mock_session = MagicMock()
-    mock_session_cls.return_value = mock_session
-    long_body = "A" * 5000
-    mock_session.request.return_value = make_response(
-        200, text=long_body, content_type="text/plain"
-    )
-    client = AnsibleClient(base_url="https://h", token="t")
-
-    result = client.request_text("GET", "/api/v2/metrics/")
-
-    assert result == long_body
-    assert len(result) == 5000
-
-
-@patch("awx_mcp.client.requests.Session")
 def test_request_truncates_non_json_body_to_1000_chars(mock_session_cls):
-    """Contrast with request_text: the JSON-oriented request() truncates a
-    non-JSON fallback body to 1000 chars."""
+    """The JSON-oriented request() truncates a non-JSON fallback body to
+    1000 chars."""
     mock_session = MagicMock()
     mock_session_cls.return_value = mock_session
     long_body = "B" * 5000

@@ -109,7 +109,8 @@ def get_ansible_version() -> str:
     """Get AWX/Ansible controller version and health information.
 
     Use this to verify controller version compatibility before automation changes.
-    Pair with get_config for settings context and get_metrics for runtime observability.
+    Pair with get_config for settings context and get_dashboard_stats for a
+    high-level operational snapshot.
     """
     with get_ansible_client() as client:
         info = client.request("GET", "/api/v2/ping/")
@@ -126,19 +127,6 @@ def get_dashboard_stats() -> str:
     with get_ansible_client() as client:
         stats = client.request("GET", "/api/v2/dashboard/")
         return json.dumps(stats, indent=2)
-
-
-@read_tool
-def get_metrics() -> str:
-    """Get AWX Prometheus metrics output.
-
-    Use this for system-level monitoring, scraping, and performance triage.
-    For high-level counts and summaries, use get_dashboard_stats instead.
-    """
-    with get_ansible_client() as client:
-        # /metrics/ returns Prometheus text, not JSON. Use request_text so the
-        # full body is returned instead of the truncated non-JSON fallback.
-        return client.request_text("GET", "/api/v2/metrics/")
 
 
 # =============================================================================
