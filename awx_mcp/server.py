@@ -188,23 +188,23 @@ def resolve_tls_kwargs(transport: str) -> dict[str, str] | None:
         )
         return None
 
+    cert, key = TLS_CERT, TLS_KEY
     missing = [
         name
-        for name, value in (
-            ("AWX_MCP_TLS_CERT", TLS_CERT),
-            ("AWX_MCP_TLS_KEY", TLS_KEY),
-        )
+        for name, value in (("AWX_MCP_TLS_CERT", cert), ("AWX_MCP_TLS_KEY", key))
         if not value
     ]
     if missing:
         raise ValueError(
             "AWX_MCP_TLS_ENABLE=true requires " + " and ".join(missing) + " to be set."
         )
-    for name, path in (("AWX_MCP_TLS_CERT", TLS_CERT), ("AWX_MCP_TLS_KEY", TLS_KEY)):
+    # After the missing check both are set; narrow str | None -> str for mypy.
+    assert cert is not None and key is not None
+    for name, path in (("AWX_MCP_TLS_CERT", cert), ("AWX_MCP_TLS_KEY", key)):
         if not os.path.isfile(path):
             raise ValueError(f"{name} points to a file that does not exist: {path}")
 
-    kwargs: dict[str, str] = {"ssl_certfile": TLS_CERT, "ssl_keyfile": TLS_KEY}
+    kwargs: dict[str, str] = {"ssl_certfile": cert, "ssl_keyfile": key}
     if TLS_KEY_PASSWORD:
         kwargs["ssl_keyfile_password"] = TLS_KEY_PASSWORD
     return kwargs
