@@ -39,15 +39,7 @@ An MCP (Model Context Protocol) server that lets LLMs interact with AWX instance
 
 ## Quick Start
 
-This server runs from a local clone with [uv](https://docs.astral.sh/uv/). Clone the repo and sync dependencies once:
-
-```bash
-git clone https://github.com/lycorp-jp/awx-mcp
-cd awx-mcp
-uv sync          # creates .venv and installs dependencies
-```
-
-Then point your MCP client at the clone using `uv run --directory <path>`. Replace `/path/to/awx-mcp` with the absolute path to your clone.
+This server runs directly from the git repository with [uv](https://docs.astral.sh/uv/)'s `uvx` — no manual clone, no `uv sync`. `uvx` fetches, builds, and caches the package from the repo URL on first run.
 
 ### Claude Desktop (`claude_desktop_config.json`)
 
@@ -55,8 +47,8 @@ Then point your MCP client at the clone using `uv run --directory <path>`. Repla
 {
   "mcpServers": {
     "awx": {
-      "command": "uv",
-      "args": ["run", "--directory", "/path/to/awx-mcp", "awx-mcp"],
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/lycorp-jp/awx-mcp", "awx-mcp"],
       "env": {
         "ANSIBLE_BASE_URL": "https://awx.example.com/",
         "ANSIBLE_TOKEN": "your_api_token"
@@ -72,17 +64,19 @@ Then point your MCP client at the clone using `uv run --directory <path>`. Repla
 claude mcp add awx \
   -e ANSIBLE_BASE_URL=https://awx.example.com/ \
   -e ANSIBLE_TOKEN=your_api_token \
-  -- uv run --directory /path/to/awx-mcp awx-mcp
+  -- uvx --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp
 ```
 
 Once configured, ask the LLM in plain language: "Show me the list of inventories registered in AWX."
+
+> `uvx` caches the repo on first fetch. To upgrade later, add `--refresh` once (`uvx --refresh --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp`), or pin a version by appending a ref (`git+https://github.com/lycorp-jp/awx-mcp@vX.Y.Z`). For development, a local checkout still works: `uv run --directory /path/to/awx-mcp awx-mcp`.
 
 ---
 
 ## Prerequisites
 
 - A reachable AWX instance and its base URL (REST API v2), plus an API token (or username + password) with appropriate permissions
-- [uv](https://docs.astral.sh/uv/)
+- [uv](https://docs.astral.sh/uv/) (provides `uvx`, which runs the server straight from the git repo — no clone needed)
 
 ---
 
@@ -140,36 +134,25 @@ Full management across inventories, hosts, groups, job templates, jobs, projects
 
 ## Installation
 
-This server is not published to any package index — run it from a local clone with [uv](https://docs.astral.sh/uv/).
+This server is not published to a package index, but `uvx` runs it directly from the git repository — no manual clone or virtualenv. [uv](https://docs.astral.sh/uv/) provides `uvx`.
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/lycorp-jp/awx-mcp
-cd awx-mcp
-
-# 2. Sync dependencies (creates .venv automatically)
-uv sync
-
-# 3. Set required environment variables
+# 1. Set required environment variables
 export ANSIBLE_BASE_URL="https://awx.example.com/"
 export ANSIBLE_TOKEN="your_api_token"
 
-# 4a. Local mode (default — a stdio server for your own MCP client)
-uv run awx-mcp
+# 2a. Local mode (default — a stdio server for your own MCP client)
+uvx --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp
 
-# 4b. Central server for a team (admin): one shared server, per-user tokens
-uv run awx-mcp --serve --host 0.0.0.0 --port 8443
+# 2b. Central server for a team (admin): one shared server, per-user tokens
+uvx --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp --serve --host 0.0.0.0 --port 8443
 #    Endpoint: http://HOST:8443/mcp  (add --sse for http://HOST:8443/sse)
 
-# 4c. Connect to a central server (user): proxy, no local server
-uv run awx-mcp --remote https://awx-mcp.example.com:8443/mcp
+# 2c. Connect to a central server (user): proxy, no local server
+uvx --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp --remote https://awx-mcp.example.com:8443/mcp
 ```
 
-When configuring an MCP client, run from any directory by passing the clone path with `--directory`:
-
-```bash
-uv run --directory /path/to/awx-mcp awx-mcp
-```
+`uvx` caches the repo on first fetch; add `--refresh` to pull later updates, or append a ref (`.../awx-mcp@vX.Y.Z`) to pin a version. For development, clone the repo and use `uv run --directory /path/to/awx-mcp awx-mcp` (or `uv sync` then `uv run awx-mcp`) instead.
 
 **Running modes are selected by CLI flags** — see [Deployment modes](#deployment-modes) for the full picture:
 
@@ -197,8 +180,8 @@ Each user runs a local stdio server that talks to AWX with their own token.
 {
   "mcpServers": {
     "awx": {
-      "command": "uv",
-      "args": ["run", "--directory", "/path/to/awx-mcp", "awx-mcp"],
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/lycorp-jp/awx-mcp", "awx-mcp"],
       "env": {
         "ANSIBLE_BASE_URL": "https://awx.example.com/",
         "ANSIBLE_TOKEN": "your_api_token"
@@ -220,7 +203,7 @@ export AWX_MCP_USAGE_LOG_FILE=/var/log/awx-mcp/usage.jsonl   # per-user attribut
 export AWX_MCP_TLS_ENABLE=true
 export AWX_MCP_TLS_CERT=/etc/awx-mcp/cert.pem
 export AWX_MCP_TLS_KEY=/etc/awx-mcp/key.pem
-uv run awx-mcp --serve --host 0.0.0.0 --port 8443        # add --sse for the sse transport
+uvx --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp --serve --host 0.0.0.0 --port 8443        # add --sse for the sse transport
 ```
 
 `ANSIBLE_TOKEN` / `ANSIBLE_USERNAME` / `ANSIBLE_PASSWORD` are ignored in `--serve` mode (a warning is logged if set) — the server has no identity of its own.
@@ -233,8 +216,8 @@ Each user runs a stdio **proxy** that relays to the central server, injecting th
 {
   "mcpServers": {
     "awx": {
-      "command": "uv",
-      "args": ["run", "--directory", "/path/to/awx-mcp",
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/lycorp-jp/awx-mcp",
                "awx-mcp", "--remote", "https://awx-mcp.example.com:8443/mcp"],
       "env": { "ANSIBLE_TOKEN": "your_api_token" }
     }
@@ -295,8 +278,10 @@ The server automatically creates and caches an OAuth2 token on your behalf.
 | `AWX_MCP_TLS_CERT` | unset | Path to the server's TLS certificate (PEM). Required when `AWX_MCP_TLS_ENABLE=true`; the server fails fast at startup if missing or not found. |
 | `AWX_MCP_TLS_KEY` | unset | Path to the server's TLS private key (PEM). Required when TLS is enabled. |
 | `AWX_MCP_TLS_KEY_PASSWORD` | unset | Password for the private key, if it is encrypted. Optional. |
+| `AWX_MCP_STATELESS_HTTP` | `false` | Stateless streamable-http mode: each request is self-contained, with no per-session state held in the process. Needed to run multiple `--serve` replicas behind a plain round-robin load balancer (otherwise a session created on one replica 404s when routed to another). Default off preserves stateful session behavior for single-instance / sse setups. |
 | `AWX_MCP_USAGE_LOG_FILE` | unset | Path to a JSON Lines usage log; every MCP tool call is recorded as one JSON document (`@timestamp`, `type`, `user`, `tool`, `params` (redacted call arguments), `trace_id`, `server_version`, `success`, `latency_ms`, `auth_mode`, `transport`, `awx_host`, `error{type,message}` on failure). Works in every mode, including the `--remote` proxy. Unset disables instrumentation. See [Verbose usage logging](#verbose-usage-logging). |
 | `AWX_MCP_USAGE_USER` | unset | Optional label used as the `user` field in the proxy's local usage log (proxy mode has no AWX access to resolve a username; defaults to `local`). |
+| `AWX_MCP_ACCESS_LOG_FILE` | unset | Path to a JSON Lines access log for the `--serve` server; every inbound HTTP request is recorded (client IP, method, path, status, latency). Rotates at midnight (UTC), same as the usage log. `--serve` mode only — stdio and the `--remote` proxy have no HTTP socket. |
 | `AWX_MCP_SERVER_LOG_FILE` | unset | Path to a server diagnostic log file, mirroring the existing stderr diagnostics and errors. Unset means stderr only, no file. |
 | `AWX_MCP_SERVER_LOG_FORMAT` | `plain` | Server diagnostic log format: `plain` or `json`. |
 | `AWX_MCP_LOG_BACKUP_COUNT` | `7` | Number of rotated log files to retain. Both log files rotate daily at midnight (UTC) with a date suffix. |
@@ -319,7 +304,7 @@ To enable, set `AWX_MCP_TLS_ENABLE=true` along with `AWX_MCP_TLS_CERT` and `AWX_
 export AWX_MCP_TLS_ENABLE=true
 export AWX_MCP_TLS_CERT=/path/to/server.crt
 export AWX_MCP_TLS_KEY=/path/to/server.key
-uv run awx-mcp --serve --host 0.0.0.0 --port 8443
+uvx --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp --serve --host 0.0.0.0 --port 8443
 ```
 
 **Important:** In `--serve` mode each request *is* authenticated — by the caller's own AWX token in the `Authorization` header — and TLS protects that token in transit, so enabling TLS (or fronting the server with an authenticating TLS reverse proxy) is important, not optional, for any network-exposed deployment. A non-local bind without TLS logs a warning at startup. In Kubernetes, terminating TLS at the ingress is the usual approach; in-process TLS here is only needed when you require end-to-end encryption all the way to the pod.
@@ -331,6 +316,8 @@ Usage logging is opt-in: set `AWX_MCP_USAGE_LOG_FILE` to a writable path to star
 Every log line carries a `type` field so records can be split by kind: `"tool"` (regular MCP tool calls), `"internal_api"` (the `/api/v2/me/` user-resolution call the server makes, recorded with `tool: "me"` and the HTTP verb and path in separate `method`/`endpoint` fields), `"access"` (the HTTP access log), and `"diagnostic"` (the server diagnostic log). The `type` field, together with the shared `@timestamp` timestamp field, is consistent across all four record shapes so a single log index can be filtered by type. Tool-call records also include `params` — the call's arguments with secret-named keys (password, token, key, `inputs`, …) and inline `token=`/`password=`/`Bearer` values redacted.
 
 The `auth_mode` field is `static` (local) or `passthrough` (`--serve`). The `transport` field is one of `stdio`, `streamable-http`, `sse`, or `proxy`. In the central server the `user` field is the AWX account behind each request's token (per-user attribution, resolved once per token and cached; the raw token and its hash are never logged). In the `--remote` proxy's own local log, `transport` is `proxy`, `user` is `AWX_MCP_USAGE_USER` (or `local`), and `awx_host` is the central server's host.
+
+> **Multiple `--serve` replicas:** the usage/access/diagnostic logs use `TimedRotatingFileHandler`, which is thread-safe but **not multi-process safe** on a shared volume — concurrent writers can race at midnight rotation. Point each replica's log file env vars at a per-pod path, or leave them unset and rely on stdout collection instead.
 
 ---
 
@@ -358,8 +345,8 @@ Add to `claude_desktop_config.json`:
 {
   "mcpServers": {
     "awx": {
-      "command": "uv",
-      "args": ["run", "--directory", "/path/to/awx-mcp", "awx-mcp"],
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/lycorp-jp/awx-mcp", "awx-mcp"],
       "env": {
         "ANSIBLE_BASE_URL": "https://awx.example.com/",
         "ANSIBLE_TOKEN": "your_api_token"
@@ -375,7 +362,7 @@ Add to `claude_desktop_config.json`:
 claude mcp add awx \
   -e ANSIBLE_BASE_URL=https://awx.example.com/ \
   -e ANSIBLE_TOKEN=your_api_token \
-  -- uv run --directory /path/to/awx-mcp awx-mcp
+  -- uvx --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp
 ```
 
 ### Cline (VS Code)
@@ -385,8 +372,8 @@ Add to the MCP server config:
 ```json
 {
   "awx": {
-    "command": "uv",
-    "args": ["run", "--directory", "/path/to/awx-mcp", "awx-mcp"],
+    "command": "uvx",
+    "args": ["--from", "git+https://github.com/lycorp-jp/awx-mcp", "awx-mcp"],
     "env": {
       "ANSIBLE_BASE_URL": "https://awx.example.com/",
       "ANSIBLE_TOKEN": "your_api_token"
@@ -405,8 +392,8 @@ When an admin runs a central `awx-mcp --serve` instance, users connect in one of
 {
   "mcpServers": {
     "awx": {
-      "command": "uv",
-      "args": ["run", "--directory", "/path/to/awx-mcp",
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/lycorp-jp/awx-mcp",
                "awx-mcp", "--remote", "https://awx-mcp.example.com:8443/mcp"],
       "env": { "ANSIBLE_TOKEN": "your_api_token" }
     }
