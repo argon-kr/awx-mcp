@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Added
+- Tool-call arguments are recorded in the usage log as a `params` field so you
+  can see how each tool was invoked. Secret-named keys (password, token, key,
+  `inputs`, …) and inline `token=`/`password=`/`Bearer` values are redacted, and
+  each value is truncated to keep log lines bounded.
+- Every log record now carries a `type` discriminator (`tool`, `internal_api`,
+  `access`, `diagnostic`) so the four record shapes can be separated in a single
+  log index. This replaces the usage-only `kind` field. All records also share
+  the same `@timestamp` timestamp field (the server diagnostic log previously
+  used `timestamp`), so there is one timestamp field across every log line.
+- Optional stateless streamable-http mode via `AWX_MCP_STATELESS_HTTP` (default
+  off). When enabled, `--serve` keeps no per-session state in-process, so
+  multiple replicas can run behind a plain round-robin load balancer without
+  sessions 404-ing when a request is routed to a different replica.
+- Multi-user central deployment. `awx-mcp --serve` runs one shared server that
+  authenticates **each request with the caller's own AWX token** (passthrough),
+  sent as `Authorization: Bearer <token>` (or the `X-AWX-Token` fallback header),
+  and attributes every tool call to that caller in the usage log. AWX RBAC then
+  applies per user, and no shared/static server credential is involved.
+- Client proxy mode. `awx-mcp --remote <URL>` runs no local server; it relays
+  stdio to a central `--serve` instance, injecting the user's `ANSIBLE_TOKEN`
+  as the Bearer header. Same UX as local mode (an `awx-mcp` command plus an env
+  token). Optional local usage logging via `AWX_MCP_USAGE_LOG_FILE`
+  (`transport: "proxy"`), with the user label from `AWX_MCP_USAGE_USER`.
+- Per-user read-only. When the central server is not globally read-only, a user
+  may set `AWX_MCP_READ_ONLY=true` in proxy mode; the proxy sends
+  `X-AWX-Read-Only: true` and the server rejects that caller's write-tool calls.
+  Tighten-only (advisory self-restriction), never loosens server policy.
+- Usage records gained `auth_mode`; the `transport` field now reports
+  `stdio` / `streamable-http` / `sse` / `proxy`.
+
+### Changed
+- Running mode is selected by CLI flags: `awx-mcp` (local stdio),
+  `awx-mcp --remote <URL>` (proxy), `awx-mcp --serve [--sse]` (central server).
+- Pinned `mcp` to `>=1.26,<2` and declared `httpx` as a direct dependency
+  (used by the proxy to inject the caller's token header).
+
+### Removed (BREAKING)
+- The `--transport` CLI flag and the `AWX_MCP_TRANSPORT` environment variable.
+  The previous "network transport + single static server token" server mode is
+  gone (it authenticated every user as one shared identity). **Migration:** run
+  `awx-mcp --serve` (add `--sse` for the sse transport) — note the auth model
+  changed: each user now supplies their own token. Setting `AWX_MCP_TRANSPORT`
+  now fails fast with a message pointing to `--serve`. The sse transport itself
+  is retained, reachable via `awx-mcp --serve --sse`.
+
 ### Security
 - The four credential/user write tools (`create_credential`, `update_credential`,
   `create_user`, `update_user`) are now opt-in via
@@ -43,13 +89,13 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 - Best-effort token revocation on shutdown (`atexit`) for tokens minted via
   username/password auth.
 - Verbose usage logging: `AWX_MCP_USAGE_LOG_FILE` records one JSON Lines
-  document per MCP tool call (`@timestamp`, `user`, `tool`, `kind`,
+  document per MCP tool call (`@timestamp`, `type`, `user`, `tool`, `params`,
   `trace_id`, `server_version`, `success`, `latency_ms`, `transport`,
-  `awx_host`, `error{type,message}` on failure). Each entry carries a `kind`
+  `awx_host`, `error{type,message}` on failure). Each entry carries a `type`
   of `"tool"` (regular tool calls) or `"internal_api"` (the one-time
   `/api/v2/me/` user-resolution call made at startup, recorded as
-  `tool: "GET /api/v2/me/"`), so usage statistics can separate real tool
-  usage from that overhead. `AWX_MCP_SERVER_LOG_FILE` /
+  `tool: "me"` with the HTTP verb and path in separate `method`/`endpoint`
+  fields), so usage statistics can separate real tool usage from that overhead. `AWX_MCP_SERVER_LOG_FILE` /
   `AWX_MCP_SERVER_LOG_FORMAT` / `AWX_MCP_LOG_BACKUP_COUNT` add a mirrored
   server diagnostic log file with daily rotation. (#13)
 - Optional in-process inbound TLS for the `sse`/`streamable-http` transports:

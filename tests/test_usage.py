@@ -27,6 +27,7 @@ import awx_mcp.usage as usage  # noqa: E402
 
 REQUIRED_FIELDS = {
     "@timestamp",
+    "type",
     "user",
     "tool",
     "trace_id",
@@ -126,6 +127,109 @@ def test_each_call_appends_a_line(monkeypatch, tmp_path):
     my_tool()
 
     assert len(_read_lines(log_file)) == 3
+
+
+# ---------------------------------------------------------------------------
+# tool call parameters -> logged as `params`, secrets redacted
+# ---------------------------------------------------------------------------
+
+
+def test_tool_params_are_logged(monkeypatch, tmp_path):
+    log_file = tmp_path / "usage.jsonl"
+    mod = _reload_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
+    monkeypatch.setattr(mod, "resolve_user_identifier", lambda: "tester")
+
+    @mod.instrument_tool
+    def my_tool(inventory_id=None, name=None):
+        return "ok"
+
+    my_tool(inventory_id=5, name="web-01")
+
+    entry = json.loads(_read_lines(log_file)[0])
+    assert entry["params"] == {"inventory_id": 5, "name": "web-01"}
+
+
+def test_no_params_omits_field(monkeypatch, tmp_path):
+    log_file = tmp_path / "usage.jsonl"
+    mod = _reload_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
+    monkeypatch.setattr(mod, "resolve_user_identifier", lambda: "tester")
+
+    @mod.instrument_tool
+    def my_tool():
+        return "ok"
+
+    my_tool()
+
+    entry = json.loads(_read_lines(log_file)[0])
+    assert "params" not in entry
+
+
+def test_sensitive_params_are_redacted(monkeypatch, tmp_path):
+    log_file = tmp_path / "usage.jsonl"
+    mod = _reload_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
+    monkeypatch.setattr(mod, "resolve_user_identifier", lambda: "tester")
+
+    @mod.instrument_tool
+    def create_credential(name=None, password=None, inputs=None, extra=None):
+        return "ok"
+
+    create_credential(
+        name="db",
+        password="s3cret",
+        inputs={"ssh_key_data": "PRIVATE"},
+        extra="token=abc123",
+    )
+
+    entry = json.loads(_read_lines(log_file)[0])
+    params = entry["params"]
+    # Sensitive-named keys are fully redacted.
+    assert params["password"] == "***"
+    assert params["inputs"] == "***"
+    # Non-sensitive keys keep their value, but inline secrets are masked.
+    assert params["name"] == "db"
+    assert params["extra"] == "token=***"
+
+
+def test_freeform_var_blob_is_redacted(monkeypatch, tmp_path):
+    log_file = tmp_path / "usage.jsonl"
+    mod = _reload_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
+    monkeypatch.setattr(mod, "resolve_user_identifier", lambda: "tester")
+
+    @mod.instrument_tool
+    def launch_job(template_id=None, extra_vars=None):
+        return "ok"
+
+    launch_job(template_id=5, extra_vars='{"api_key": "SECRET", "region": "us"}')
+
+    params = json.loads(_read_lines(log_file)[0])["params"]
+    assert params["template_id"] == 5
+    # extra_vars is a free-form blob — redacted wholesale, secret never logged.
+    assert params["extra_vars"] == "***"
+
+
+def test_nested_secret_keys_are_redacted(monkeypatch, tmp_path):
+    log_file = tmp_path / "usage.jsonl"
+    mod = _reload_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
+    monkeypatch.setattr(mod, "resolve_user_identifier", lambda: "tester")
+
+    @mod.instrument_tool
+    def configure(payload=None, blob=None):
+        return "ok"
+
+    configure(
+        payload={"host": "h", "nested": {"api_token": "SECRET", "port": 22}},
+        blob='{"ssh_private_key": "SECRET", "user": "root"}',
+    )
+
+    params = json.loads(_read_lines(log_file)[0])["params"]
+    # dict value: benign keys kept, nested secret-named key redacted.
+    assert params["payload"]["host"] == "h"
+    assert params["payload"]["nested"]["port"] == 22
+    assert params["payload"]["nested"]["api_token"] == "***"
+    # JSON string value: parsed and nested secret redacted, benign key kept.
+    assert params["blob"]["user"] == "root"
+    assert params["blob"]["ssh_private_key"] == "***"
+    assert "SECRET" not in _read_lines(log_file)[0]
 
 
 # ---------------------------------------------------------------------------
@@ -255,10 +359,12 @@ def test_user_resolution_failure_falls_back_to_unknown(monkeypatch, tmp_path):
 
     entries = [json.loads(line) for line in _read_lines(log_file)]
     # Two entries: the internal /api/v2/me/ attempt (failed) and the tool call.
-    me_entry = next(e for e in entries if e["kind"] == "internal_api")
-    tool_entry = next(e for e in entries if e["kind"] == "tool")
+    me_entry = next(e for e in entries if e["type"] == "internal_api")
+    tool_entry = next(e for e in entries if e["type"] == "tool")
 
-    assert me_entry["tool"] == "GET /api/v2/me/"
+    assert me_entry["tool"] == "me"
+    assert me_entry["method"] == "GET"
+    assert me_entry["endpoint"] == "/api/v2/me/"
     assert me_entry["success"] is False
 
     # The failed user lookup must not affect the tool call.
@@ -295,15 +401,17 @@ def test_me_lookup_recorded_as_internal_api(monkeypatch, tmp_path):
     assert my_tool() == "ok"
 
     entries = [json.loads(line) for line in _read_lines(log_file)]
-    me_entry = next(e for e in entries if e["kind"] == "internal_api")
-    tool_entry = next(e for e in entries if e["kind"] == "tool")
+    me_entry = next(e for e in entries if e["type"] == "internal_api")
+    tool_entry = next(e for e in entries if e["type"] == "tool")
 
-    assert me_entry["tool"] == "GET /api/v2/me/"
+    assert me_entry["tool"] == "me"
+    assert me_entry["method"] == "GET"
+    assert me_entry["endpoint"] == "/api/v2/me/"
     assert me_entry["success"] is True
     assert me_entry["user"] == "alice"
     # The /me/ call is resolved once and attributed to the tool call too.
     assert tool_entry["user"] == "alice"
-    assert tool_entry["kind"] == "tool"
+    assert tool_entry["type"] == "tool"
 
 
 # ---------------------------------------------------------------------------
@@ -390,7 +498,8 @@ def test_server_log_file_json_format(tmp_path):
     probe = None
     for line in lines:
         entry = json.loads(line)  # every line must be valid JSON
-        assert {"timestamp", "level", "logger", "message"} <= set(entry)
+        assert {"@timestamp", "type", "level", "logger", "message"} <= set(entry)
+        assert entry["type"] == "diagnostic"
         if entry["message"] == "diagnostic-probe-message":
             probe = entry
     assert probe is not None
@@ -413,6 +522,117 @@ def test_server_log_file_plain_format(tmp_path):
 
     assert result.stdout == "STDOUT_SENTINEL"
     assert "diagnostic-probe-message" not in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# passthrough: per-token user cache + attribution (no raw token in the log)
+# ---------------------------------------------------------------------------
+
+
+def test_passthrough_per_token_user_cache(monkeypatch, tmp_path):
+    mod = _reload_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(tmp_path / "u.jsonl"))
+    monkeypatch.setattr("awx_mcp.server.AUTH_MODE", "passthrough")
+
+    current = {"t": "tokA"}
+    monkeypatch.setattr("awx_mcp.client.get_request_token", lambda: current["t"])
+
+    names = {"tokA": "alice", "tokB": "bob"}
+    looked_up: list[str] = []
+
+    def fake_lookup(token=None):
+        looked_up.append(token)
+        return names[token]
+
+    monkeypatch.setattr(mod, "_lookup_me_username", fake_lookup)
+
+    # Same token twice -> one /api/v2/me/ lookup, cached thereafter.
+    assert mod.resolve_user_identifier() == "alice"
+    assert mod.resolve_user_identifier() == "alice"
+    # Different token -> a distinct identity, its own lookup.
+    current["t"] = "tokB"
+    assert mod.resolve_user_identifier() == "bob"
+
+    assert looked_up == ["tokA", "tokB"]
+
+
+def test_passthrough_no_token_is_unknown(monkeypatch, tmp_path):
+    mod = _reload_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(tmp_path / "u.jsonl"))
+    monkeypatch.setattr("awx_mcp.server.AUTH_MODE", "passthrough")
+    monkeypatch.setattr("awx_mcp.client.get_request_token", lambda: None)
+    monkeypatch.setattr(
+        mod, "_lookup_me_username", lambda token=None: pytest.fail("no lookup")
+    )
+    assert mod.resolve_user_identifier() == "unknown"
+
+
+def test_passthrough_token_cache_bounded(monkeypatch, tmp_path):
+    mod = _reload_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(tmp_path / "u.jsonl"))
+    monkeypatch.setattr("awx_mcp.server.AUTH_MODE", "passthrough")
+    monkeypatch.setattr(mod, "_MAX_TOKEN_CACHE", 2)
+    monkeypatch.setattr(mod, "_lookup_me_username", lambda token=None: f"u-{token}")
+
+    for tok in ("t1", "t2", "t3", "t4"):
+        monkeypatch.setattr("awx_mcp.client.get_request_token", lambda t=tok: t)
+        mod.resolve_user_identifier()
+
+    # The cache never grows without bound (cleared when it reaches the cap).
+    assert len(mod._user_cache_by_token) <= mod._MAX_TOKEN_CACHE
+
+
+def test_passthrough_log_line_has_no_raw_token(monkeypatch, tmp_path):
+    log_file = tmp_path / "u.jsonl"
+    mod = _reload_usage(
+        monkeypatch,
+        AWX_MCP_USAGE_LOG_FILE=str(log_file),
+        AWX_MCP_AUTH_MODE="passthrough",
+    )
+    monkeypatch.setattr("awx_mcp.server.AUTH_MODE", "passthrough")
+    secret = "super-secret-token-XYZ"
+    monkeypatch.setattr("awx_mcp.client.get_request_token", lambda: secret)
+    monkeypatch.setattr(mod, "_lookup_me_username", lambda token=None: "alice")
+
+    @mod.instrument_tool
+    def my_tool():
+        return "ok"
+
+    my_tool()
+
+    text = log_file.read_text()
+    assert secret not in text  # neither raw token
+    import hashlib
+
+    assert hashlib.sha256(secret.encode()).hexdigest()[:16] not in text  # nor its hash
+    entry = json.loads(_read_lines(log_file)[-1])
+    assert entry["user"] == "alice"
+    assert entry["auth_mode"] == "passthrough"
+
+
+# ---------------------------------------------------------------------------
+# proxy local recorder: transport="proxy", supplied user/awx_host, no server import
+# ---------------------------------------------------------------------------
+
+
+def test_record_proxy_tool_call_writes_proxy_record(monkeypatch, tmp_path):
+    log_file = tmp_path / "u.jsonl"
+    mod = _reload_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
+
+    import time as _time
+
+    mod.record_proxy_tool_call(
+        "list_inventories",
+        _time.monotonic(),
+        True,
+        None,
+        user="argon",
+        awx_host="central.example.com",
+    )
+
+    entry = json.loads(_read_lines(log_file)[-1])
+    assert entry["tool"] == "list_inventories"
+    assert entry["transport"] == "proxy"
+    assert entry["user"] == "argon"
+    assert entry["awx_host"] == "central.example.com"
+    assert entry["success"] is True
 
 
 def test_server_log_file_unset_creates_no_file(tmp_path):
