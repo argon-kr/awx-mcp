@@ -20,8 +20,10 @@ from urllib.parse import urlparse
 import urllib3
 from mcp.server.context import CallNext, HandlerResult, ServerRequestContext
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
+from .exceptions import AnsibleAPIError
 from .tls_config import resolve_ssl_verify
 from .usage import instrument_tool, make_timed_rotating_handler
 
@@ -352,6 +354,52 @@ def _read_only_gated(func: Callable[..., Any]) -> Callable[..., Any]:
     return wrapper
 
 
+# Failures a tool is *expected* to report to the caller: AWX API errors (401 /
+# 403 / 400 / 5xx text from AWX), the per-request read-only gate, and argument
+# validation. Everything else is a crash.
+_ANTICIPATED_TOOL_ERRORS: tuple[type[BaseException], ...] = (
+    AnsibleAPIError,
+    PermissionError,
+    ValueError,
+)
+
+
+def _surface_tool_errors(func: Callable[..., Any]) -> Callable[..., Any]:
+    """Re-raise anticipated failures as ``ToolError`` so their text reaches the model.
+
+    Since mcp 2.1 (python-sdk #3314) MCPServer treats any exception other than
+    ``ToolError`` as a crash: the client sees only ``Error executing tool <name>``
+    and the traceback goes to the server log. That is right for a genuine bug,
+    but an AWX 401/403/400 message, the read-only refusal or a bad-argument
+    ``ValueError`` is *for* the model: it needs the text to fix the call or to
+    tell the user. Wrapping those in ``ToolError`` keeps the message on the wire
+    on both mcp 2.0 and 2.1 (identical ``Error executing tool <name>: <text>``).
+
+    Sits outside ``instrument_tool`` so the usage log still records the original
+    exception class; it stays reachable here as ``__cause__``. Supports sync and
+    async tools.
+    """
+    if inspect.iscoroutinefunction(func):
+
+        @functools.wraps(func)
+        async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return await func(*args, **kwargs)
+            except _ANTICIPATED_TOOL_ERRORS as exc:
+                raise ToolError(str(exc)) from exc
+
+        return async_wrapper
+
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        try:
+            return func(*args, **kwargs)
+        except _ANTICIPATED_TOOL_ERRORS as exc:
+            raise ToolError(str(exc)) from exc
+
+    return wrapper
+
+
 def read_tool(func):
     """Register a pure read/GET MCP tool.
 
@@ -359,7 +407,7 @@ def read_tool(func):
     annotated with ``readOnlyHint=True``.
     """
     return mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))(
-        instrument_tool(func)
+        _surface_tool_errors(instrument_tool(func))
     )
 
 
@@ -382,7 +430,7 @@ def write_tool(*, destructive: bool = False, idempotent: bool = False):
                 destructiveHint=destructive,
                 idempotentHint=idempotent,
             )
-        )(instrument_tool(_read_only_gated(func)))
+        )(_surface_tool_errors(instrument_tool(_read_only_gated(func))))
 
     return deco
 
@@ -407,7 +455,7 @@ def maybe_credential_management_tool(func):
                 destructiveHint=True,
                 idempotentHint=False,
             )
-        )(instrument_tool(_read_only_gated(func)))
+        )(_surface_tool_errors(instrument_tool(_read_only_gated(func))))
     return func
 
 
