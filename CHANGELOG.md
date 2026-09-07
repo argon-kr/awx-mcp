@@ -100,6 +100,14 @@ and this project adheres to [Semantic Versioning](https://semver.org).
   development).
 
 ### Fixed
+- Tool error messages survive the upgrade to mcp >= 2.1. The SDK now masks any
+  exception other than `ToolError` as a bare `Error executing tool <name>`
+  (python-sdk #3314), which would have hidden every AWX 401/403/400 message,
+  the read-only refusal and argument-validation errors from the model.
+  `read_tool` / `write_tool` now re-raise those anticipated failures as
+  `ToolError`, so the client sees the same `Error executing tool <name>: <text>`
+  as before. Unexpected crashes stay masked (and logged with a traceback
+  server-side), as the SDK intends.
 - `_atexit_revoke_targets` no longer accumulates superseded token entries on
   re-mint: only the latest minted token per AWX base URL is kept for
   shutdown revocation (best-effort: a token superseded after a transient

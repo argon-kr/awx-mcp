@@ -2,10 +2,11 @@
 
 """Typed exception hierarchy for AWX/Tower API errors.
 
-All API errors inherit from AnsibleAPIError. Tools propagate these to the
-MCP client; MCPServer surfaces the exception class name in the error envelope's
-``error_type`` field, allowing LLM clients to discriminate auth vs. validation
-vs. transport failures.
+All API errors inherit from AnsibleAPIError. Tools let them propagate;
+``awx_mcp.server._surface_tool_errors`` re-raises them as MCPServer's
+``ToolError`` so the message reaches the model as an ``is_error`` result. (Since
+mcp 2.1 any other exception type is masked to a bare ``Error executing tool
+<name>``.) The subclass tells auth, validation and transport failures apart.
 """
 
 
