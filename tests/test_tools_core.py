@@ -12,7 +12,7 @@ Covers HTTP method/endpoint/body construction and validation branches for:
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -1107,28 +1107,25 @@ def test_get_project_update_stdout_json_format_uses_client_request(fake_client):
 
     assert fake_client.request.call_args.args == (
         "GET",
-        "/api/v2/project_updates/11/stdout/?format=json",
+        "/api/v2/project_updates/11/stdout/",
     )
+    assert fake_client.request.call_args.kwargs["params"] == {"format": "json"}
     assert json.loads(out) == {"content": "log text"}
 
 
-def test_get_project_update_stdout_txt_format_uses_raw_session_get(fake_client):
-    fake_client.base_url = "https://awx.example.com"
-    fake_client.get_headers.return_value = {"Authorization": "Bearer x"}
-    fake_response = MagicMock(status_code=200, text="PLAY [all] ***")
-    fake_client.session.get.return_value = fake_response
+def test_get_project_update_stdout_txt_goes_through_request_text(fake_client):
+    """Non-JSON formats use client.request_text, i.e. the same _send path as
+    every other call (origin check, timeout, typed + secret-masked errors)."""
+    fake_client.request_text.return_value = "PLAY [all] ***"
 
     with patch.object(
         projects_mod, "get_ansible_client", new=fake_client_factory(fake_client)
     ):
         out = projects_mod.get_project_update_stdout(update_id=11, format="txt")
 
-    fake_client._validate_url.assert_called_once()
-    called_url = fake_client._validate_url.call_args.args[0]
-    assert called_url == (
-        "https://awx.example.com/api/v2/project_updates/11/stdout/?format=txt"
+    fake_client.request_text.assert_called_once_with(
+        "GET", "/api/v2/project_updates/11/stdout/", params={"format": "txt"}
     )
-    fake_client.session.get.assert_called_once()
     assert json.loads(out) == {"status": "success", "stdout": "PLAY [all] ***"}
     fake_client.request.assert_not_called()
 

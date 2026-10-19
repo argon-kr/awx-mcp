@@ -374,7 +374,7 @@ def delete_inventory_source(source_id: int) -> str:
 
 
 # =============================================================================
-# Inventory Update Monitoring (NEW)
+# Inventory Update Monitoring
 # =============================================================================
 
 

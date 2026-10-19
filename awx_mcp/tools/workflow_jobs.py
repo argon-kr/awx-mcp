@@ -234,7 +234,7 @@ def deny_workflow(approval_id: int) -> str:
 
 
 # =============================================================================
-# Workflow Approval Templates (NEW)
+# Workflow Approval Templates
 # =============================================================================
 
 

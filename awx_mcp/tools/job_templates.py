@@ -392,7 +392,7 @@ def delete_job_template_survey(template_id: int) -> str:
 
 
 # =============================================================================
-# Credential Association (NEW)
+# Credential Association
 # =============================================================================
 
 

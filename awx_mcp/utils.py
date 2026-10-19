@@ -1,8 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
 
+import functools
+import inspect
 import json
 import re
+from collections.abc import Callable
+from contextlib import AbstractContextManager
 from typing import Any
+
+
+def truthy(value: str | None) -> bool:
+    """Parse a boolean env/header value: ``true``/``1``/``yes`` (any case)."""
+    return (value or "").strip().lower() in ("true", "1", "yes")
 
 
 def package_version() -> str:
@@ -66,3 +75,33 @@ def parse_json_str(value: str, param_name: str) -> Any:
         return json.loads(value)
     except json.JSONDecodeError as exc:
         raise ValueError(f"Invalid JSON in {param_name}: {exc.msg}") from exc
+
+
+def wrap_tool_call(
+    func: Callable[..., Any],
+    around: Callable[[dict[str, Any]], AbstractContextManager[Any]],
+) -> Callable[..., Any]:
+    """Run every call of ``func`` (sync or async) inside ``around(kwargs)``.
+
+    The one place that knows how to wrap both sync and async tools. ``around``
+    is a context-manager factory receiving the call's keyword arguments (MCP
+    tools are always invoked by keyword); it may run checks on enter, observe
+    or translate exceptions, and record on exit. ``functools.wraps`` preserves
+    the signature, docstring and annotations so MCP schema generation sees the
+    original tool.
+    """
+    if inspect.iscoroutinefunction(func):
+
+        @functools.wraps(func)
+        async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+            with around(kwargs):
+                return await func(*args, **kwargs)
+
+        return async_wrapper
+
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        with around(kwargs):
+            return func(*args, **kwargs)
+
+    return wrapper

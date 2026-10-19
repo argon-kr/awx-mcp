@@ -50,7 +50,10 @@ INTERNAL_ENV_SYMBOLS = {
     "AWX_MCP_TRANSPORT",
 }
 
-ENV_SYMBOL_RE = re.compile(r'os\.environ\.get\(\s*"((?:AWX_MCP|ANSIBLE)_[A-Z0-9_]*)"')
+# Every env prefix the server reads. AWX_HTTP_ was missing here, which let
+# AWX_HTTP_TIMEOUT_READ go undocumented in all three READMEs.
+ENV_PREFIXES = "AWX_MCP|AWX_HTTP|ANSIBLE"
+ENV_SYMBOL_RE = re.compile(rf'os\.environ\.get\(\s*"((?:{ENV_PREFIXES})_[A-Z0-9_]*)"')
 
 errors = []
 
@@ -120,7 +123,7 @@ for readme in READMES:
     content = _read(readme)
     if content is None:
         continue
-    readme_symbols = set(re.findall(r"`((?:AWX_MCP|ANSIBLE)_[A-Z0-9_]*)`", content))
+    readme_symbols = set(re.findall(rf"`((?:{ENV_PREFIXES})_[A-Z0-9_]*)`", content))
 
     missing = sorted(user_facing_symbols - readme_symbols)
     if missing:

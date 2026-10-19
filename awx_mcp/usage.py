@@ -18,9 +18,7 @@ date-suffixed backup, keeping ``AWX_MCP_LOG_BACKUP_COUNT`` backups (default 7).
 
 from __future__ import annotations
 
-import functools
 import hashlib
-import inspect
 import json
 import logging
 import os
@@ -29,13 +27,14 @@ import sys
 import threading
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from logging.handlers import TimedRotatingFileHandler
 from typing import Any
 from urllib.parse import urlparse
 
-from .utils import mask_secrets, package_version
+from .utils import mask_secrets, package_version, wrap_tool_call
 
 logger = logging.getLogger("ansible-mcp.usage")
 
@@ -536,40 +535,22 @@ def _record_internal_api(
 def instrument_tool(func: Callable[..., Any]) -> Callable[..., Any]:
     """Wrap a tool function with fire-and-forget usage instrumentation.
 
-    ``functools.wraps`` preserves the wrapped function's signature, docstring,
-    and annotations so MCPServer's schema generation is unaffected. Supports both
-    sync and async tools. When instrumentation is disabled (no log file) the
-    wrapper is a thin pass-through.
+    Signature, docstring and annotations are preserved so MCPServer's schema
+    generation is unaffected. Supports both sync and async tools. When
+    instrumentation is disabled (no log file) the wrapper is a thin
+    pass-through.
     """
-    if inspect.iscoroutinefunction(func):
 
-        @functools.wraps(func)
-        async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
-            if not _is_enabled():
-                return await func(*args, **kwargs)
-            start = time.monotonic()
-            success = True
-            captured: BaseException | None = None
-            try:
-                return await func(*args, **kwargs)
-            except Exception as exc:
-                success = False
-                captured = exc
-                raise
-            finally:
-                _record(func.__name__, start, success, captured, params=kwargs)
-
-        return async_wrapper
-
-    @functools.wraps(func)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
+    @contextmanager
+    def _instrumented(kwargs: dict[str, Any]) -> Iterator[None]:
         if not _is_enabled():
-            return func(*args, **kwargs)
+            yield
+            return
         start = time.monotonic()
         success = True
         captured: BaseException | None = None
         try:
-            return func(*args, **kwargs)
+            yield
         except Exception as exc:
             success = False
             captured = exc
@@ -577,4 +558,4 @@ def instrument_tool(func: Callable[..., Any]) -> Callable[..., Any]:
         finally:
             _record(func.__name__, start, success, captured, params=kwargs)
 
-    return wrapper
+    return wrap_tool_call(func, _instrumented)

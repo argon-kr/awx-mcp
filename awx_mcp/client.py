@@ -14,7 +14,7 @@ import re
 import threading
 import time
 from contextlib import contextmanager
-from typing import Any, Literal, overload
+from typing import Any, Literal, cast, overload
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -335,6 +335,17 @@ class AnsibleClient:
 
         return response
 
+    def request_text(
+        self, method: str, endpoint: str, params: dict | None = None
+    ) -> str:
+        """Make a request and return the raw response body as text.
+
+        For non-JSON endpoints (e.g. job stdout in ``txt``/``ansi``/``html``).
+        Goes through ``_send`` like ``request`` so origin validation, timeouts,
+        typed errors and secret masking all apply.
+        """
+        return self._send(method, endpoint, params).text
+
     def request(
         self,
         method: str,
@@ -366,6 +377,11 @@ class AnsibleClient:
 # Token cache for reuse across tool calls
 _cached_token = None
 _cached_token_id = None
+# time.monotonic() when the cached token last proved valid (minted, or passed
+# the /api/v2/ping/ preflight). Within _PREFLIGHT_TTL_SECONDS the preflight is
+# skipped, so a burst of tool calls costs one extra round trip, not one each.
+_cached_token_verified_at: float | None = None
+_PREFLIGHT_TTL_SECONDS = 300.0
 
 _token_cache_lock = threading.Lock()
 _atexit_revoke_targets: list[
@@ -413,10 +429,44 @@ def _atexit_drain() -> None:
 atexit.register(_atexit_drain)
 
 
+def _client_on_shared_session(token: str | None = None) -> AnsibleClient:
+    """Build a client for the static/cached-token paths on the thread's pool.
+
+    The client does not own the shared session, so ``__exit__`` leaves it open
+    for the next call on this thread.
+    """
+    # ANSIBLE_BASE_URL is validated non-empty when awx_mcp.server is imported.
+    client = AnsibleClient(
+        base_url=cast(str, ANSIBLE_BASE_URL),
+        username=ANSIBLE_USERNAME,
+        password=ANSIBLE_PASSWORD,
+        token=token,
+    )
+    client.session = _get_shared_session()
+    client._owns_session = False
+    return client
+
+
+def _cache_is_fresh(token: str) -> bool:
+    with _token_cache_lock:
+        return (
+            _cached_token == token
+            and _cached_token_verified_at is not None
+            and time.monotonic() - _cached_token_verified_at < _PREFLIGHT_TTL_SECONDS
+        )
+
+
+def _mark_cache_verified(token: str) -> None:
+    global _cached_token_verified_at
+    with _token_cache_lock:
+        if _cached_token == token:
+            _cached_token_verified_at = time.monotonic()
+
+
 @contextmanager
 def get_ansible_client():
     """Get an initialized Ansible API client with token reuse."""
-    global _cached_token, _cached_token_id
+    global _cached_token, _cached_token_id, _cached_token_verified_at
 
     # Passthrough (--serve) mode: authenticate with the caller's per-request
     # token. No caching, minting, or atexit revocation — the token belongs to
@@ -437,15 +487,7 @@ def get_ansible_client():
 
     # If we have a static token from env, always use it
     if ANSIBLE_TOKEN:
-        client = AnsibleClient(
-            base_url=ANSIBLE_BASE_URL,
-            username=ANSIBLE_USERNAME,
-            password=ANSIBLE_PASSWORD,
-            token=ANSIBLE_TOKEN,
-        )
-        client.session = _get_shared_session()
-        client._owns_session = False
-        with client:
+        with _client_on_shared_session(ANSIBLE_TOKEN) as client:
             yield client
         return
 
@@ -454,17 +496,12 @@ def get_ansible_client():
         cached_token = _cached_token
 
     if cached_token:
-        client = AnsibleClient(
-            base_url=ANSIBLE_BASE_URL,
-            username=ANSIBLE_USERNAME,
-            password=ANSIBLE_PASSWORD,
-            token=cached_token,
-        )
-        client.session = _get_shared_session()
-        client._owns_session = False
+        client = _client_on_shared_session(cached_token)
         try:
             client.__enter__()
-            client.request("GET", "/api/v2/ping/")
+            if not _cache_is_fresh(cached_token):
+                client.request("GET", "/api/v2/ping/")
+                _mark_cache_verified(cached_token)
         except AnsibleAPIError:
             logger.debug("Cached token expired, refreshing...")
             with _token_cache_lock:
@@ -472,6 +509,7 @@ def get_ansible_client():
                 if _cached_token == cached_token:
                     _cached_token = None
                     _cached_token_id = None
+                    _cached_token_verified_at = None
             client.__exit__(None, None, None)
         else:
             try:
@@ -480,59 +518,20 @@ def get_ansible_client():
                 client.__exit__(None, None, None)
             return
 
-    # Need to mint a new token. Acquire lock for the mint to serialize concurrent
-    # refreshes; double-check inside the lock in case another thread minted.
+    # Need to mint a new token. Serialize the mint under the lock so only one
+    # thread calls get_token() at a time (AWX would otherwise create duplicate
+    # tokens); re-check inside the lock in case another thread just minted.
     with _token_cache_lock:
-        if _cached_token:
-            existing_token = _cached_token
-        else:
-            existing_token = None
-
-    if existing_token:
-        # Another thread minted while we were trying — re-use it.
-        client = AnsibleClient(
-            base_url=ANSIBLE_BASE_URL,
-            username=ANSIBLE_USERNAME,
-            password=ANSIBLE_PASSWORD,
-            token=existing_token,
-        )
-        client.session = _get_shared_session()
-        client._owns_session = False
-        with client:
-            yield client
-        return
-
-    # Fall through: this thread mints. Use the lock to serialize the mint
-    # itself (only one thread should call get_token() at a time to avoid AWX
-    # creating duplicate tokens).
-    with _token_cache_lock:
-        # final check
-        if _cached_token:
-            client = AnsibleClient(
-                base_url=ANSIBLE_BASE_URL,
-                username=ANSIBLE_USERNAME,
-                password=ANSIBLE_PASSWORD,
-                token=_cached_token,
-            )
-            mint = False
-        else:
-            client = AnsibleClient(
-                base_url=ANSIBLE_BASE_URL,
-                username=ANSIBLE_USERNAME,
-                password=ANSIBLE_PASSWORD,
-            )
-            mint = True
-
-        client.session = _get_shared_session()
-        client._owns_session = False
-
-        if mint:
+        existing = _cached_token
+        client = _client_on_shared_session(existing)
+        if existing is None:
             # authenticates via get_token() — mutates self.token + self._token_id
             client.__enter__()
             _cached_token = client.token
             _cached_token_id = client._token_id
+            _cached_token_verified_at = time.monotonic()
 
-    if mint:
+    if existing is None:
         try:
             yield client
         finally:

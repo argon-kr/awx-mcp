@@ -7,12 +7,11 @@ MCPServer instance, environment configuration, and logging setup.
 """
 
 import contextvars
-import functools
-import inspect
 import json
 import logging
 import os
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
@@ -26,7 +25,7 @@ from mcp.types import ToolAnnotations
 from .exceptions import AnsibleAPIError
 from .tls_config import resolve_ssl_verify
 from .usage import instrument_tool, make_timed_rotating_handler
-from .utils import package_version
+from .utils import package_version, truthy, wrap_tool_call
 
 # AWX_MCP_TRANSPORT was removed: the running mode is now chosen by CLI flags
 # (`awx-mcp` = local stdio; `awx-mcp --serve [--sse]` = central network server).
@@ -62,11 +61,7 @@ except ValueError as exc:
 # a plain round-robin load balancer — otherwise a session created on one replica
 # 404s when a later request is routed to another. Default off (preserves the
 # stateful session behavior for single-instance / sse setups).
-STATELESS_HTTP = os.environ.get("AWX_MCP_STATELESS_HTTP", "false").lower() in (
-    "true",
-    "1",
-    "yes",
-)
+STATELESS_HTTP = truthy(os.environ.get("AWX_MCP_STATELESS_HTTP"))
 
 # --- Inbound request headers -------------------------------------------------
 # Passthrough mode needs the caller's headers from deep inside a tool body
@@ -145,14 +140,10 @@ ANSIBLE_TOKEN = os.environ.get("ANSIBLE_TOKEN")
 # TLS: verification is ON by default (secure). The resolved requests `verify=`
 # value is computed into ANSIBLE_SSL_VERIFY below via tls_config.resolve_ssl_verify
 # (shared with the proxy), once the logger exists so the disable warning can fire.
-ENABLE_CREDENTIAL_MANAGEMENT = os.environ.get(
-    "AWX_MCP_ENABLE_CREDENTIAL_MANAGEMENT", "false"
-).lower() in ("true", "1", "yes")
-READ_ONLY = os.environ.get("AWX_MCP_READ_ONLY", "false").lower() in (
-    "true",
-    "1",
-    "yes",
+ENABLE_CREDENTIAL_MANAGEMENT = truthy(
+    os.environ.get("AWX_MCP_ENABLE_CREDENTIAL_MANAGEMENT")
 )
+READ_ONLY = truthy(os.environ.get("AWX_MCP_READ_ONLY"))
 
 # Validate required environment variables
 if not ANSIBLE_BASE_URL:
@@ -268,11 +259,7 @@ if not ANSIBLE_SSL_VERIFY:
 # server serves HTTPS and a certificate + private key are required (validated at
 # startup by resolve_tls_kwargs). This is inbound (client -> awx-mcp) TLS and is
 # unrelated to ANSIBLE_SSL_VERIFY, which secures the outbound connection to AWX.
-TLS_ENABLE = os.environ.get("AWX_MCP_TLS_ENABLE", "false").lower() in (
-    "true",
-    "1",
-    "yes",
-)
+TLS_ENABLE = truthy(os.environ.get("AWX_MCP_TLS_ENABLE"))
 TLS_CERT = os.environ.get("AWX_MCP_TLS_CERT") or None
 TLS_KEY = os.environ.get("AWX_MCP_TLS_KEY") or None
 TLS_KEY_PASSWORD = os.environ.get("AWX_MCP_TLS_KEY_PASSWORD") or None
@@ -346,11 +333,7 @@ def _request_is_read_only() -> bool:
     """
     if AUTH_MODE != "passthrough":
         return False
-    return (get_request_header("x-awx-read-only") or "").lower() in (
-        "true",
-        "1",
-        "yes",
-    )
+    return truthy(get_request_header("x-awx-read-only"))
 
 
 def _read_only_gated(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -366,23 +349,13 @@ def _read_only_gated(func: Callable[..., Any]) -> Callable[..., Any]:
         "for this session (X-AWX-Read-Only)."
     )
 
-    if inspect.iscoroutinefunction(func):
-
-        @functools.wraps(func)
-        async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
-            if _request_is_read_only():
-                raise PermissionError(message)
-            return await func(*args, **kwargs)
-
-        return async_wrapper
-
-    @functools.wraps(func)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
+    @contextmanager
+    def _gate(_kwargs: dict[str, Any]) -> Iterator[None]:
         if _request_is_read_only():
             raise PermissionError(message)
-        return func(*args, **kwargs)
+        yield
 
-    return wrapper
+    return wrap_tool_call(func, _gate)
 
 
 # Failures a tool is *expected* to report to the caller: AWX API errors (401 /
@@ -410,25 +383,15 @@ def _surface_tool_errors(func: Callable[..., Any]) -> Callable[..., Any]:
     exception class; it stays reachable here as ``__cause__``. Supports sync and
     async tools.
     """
-    if inspect.iscoroutinefunction(func):
 
-        @functools.wraps(func)
-        async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
-            try:
-                return await func(*args, **kwargs)
-            except _ANTICIPATED_TOOL_ERRORS as exc:
-                raise ToolError(str(exc)) from exc
-
-        return async_wrapper
-
-    @functools.wraps(func)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
+    @contextmanager
+    def _surface(_kwargs: dict[str, Any]) -> Iterator[None]:
         try:
-            return func(*args, **kwargs)
+            yield
         except _ANTICIPATED_TOOL_ERRORS as exc:
             raise ToolError(str(exc)) from exc
 
-    return wrapper
+    return wrap_tool_call(func, _surface)
 
 
 # Acronyms kept upper-case in human-readable tool titles.

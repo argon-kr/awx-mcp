@@ -43,7 +43,7 @@ from mcp.types import (
 
 from .tls_config import resolve_ssl_verify
 from .usage import record_proxy_tool_call
-from .utils import mask_secrets, package_version
+from .utils import mask_secrets, package_version, truthy
 
 logger = logging.getLogger("awx-mcp.proxy")
 
@@ -51,10 +51,6 @@ logger = logging.getLogger("awx-mcp.proxy")
 # finishes its AWX request (which itself allows a long read), so the proxy must
 # not time out first.
 _HTTP_TIMEOUT = httpx2.Timeout(connect=10.0, read=300.0, write=30.0, pool=10.0)
-
-
-def _truthy(value: str | None) -> bool:
-    return (value or "").lower() in ("true", "1", "yes")
 
 
 def _first_error_text(content: list[Any]) -> str | None:
@@ -145,7 +141,7 @@ async def _run_proxy_async(url: str, token: str, ssl_verify: bool | str) -> None
     headers = {"Authorization": f"Bearer {token}"}
     # A user may restrict their own session to read-only; the central server
     # enforces it per request. This can only tighten access.
-    if _truthy(os.environ.get("AWX_MCP_READ_ONLY")):
+    if truthy(os.environ.get("AWX_MCP_READ_ONLY")):
         headers["X-AWX-Read-Only"] = "true"
 
     central_host = urlparse(url).hostname or "unknown"

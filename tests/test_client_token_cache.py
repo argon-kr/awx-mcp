@@ -100,6 +100,7 @@ def fake_client_class(monkeypatch):
     monkeypatch.setattr(client_mod, "ANSIBLE_BASE_URL", "https://awx.example.com")
     monkeypatch.setattr(client_mod, "_cached_token", None)
     monkeypatch.setattr(client_mod, "_cached_token_id", None)
+    monkeypatch.setattr(client_mod, "_cached_token_verified_at", None)
     return FakeClient
 
 
@@ -149,8 +150,8 @@ def test_get_ansible_client_mints_then_reuses_cached_token(
 def test_get_ansible_client_cached_token_does_ping_preflight(
     fake_client_class, monkeypatch
 ):
-    """ACTUAL behavior: the cached-token path validates with a /api/v2/ping/ GET
-    before yielding. (This documents that the ping preflight is still present.)"""
+    """A cached token not verified recently is validated with a /api/v2/ping/
+    GET before yielding."""
     monkeypatch.setattr(client_mod, "ANSIBLE_TOKEN", None)
     monkeypatch.setattr(client_mod, "ANSIBLE_USERNAME", "u")
     monkeypatch.setattr(client_mod, "ANSIBLE_PASSWORD", "p")
@@ -160,6 +161,40 @@ def test_get_ansible_client_cached_token_does_ping_preflight(
         assert client.token == "pre-cached-token"
 
     assert client.get_token_calls == 0
+    assert ("GET", "/api/v2/ping/") in client.requests
+
+
+def test_get_ansible_client_skips_preflight_within_ttl(fake_client_class, monkeypatch):
+    """After a successful preflight (or a fresh mint) the next calls within
+    the TTL reuse the token without another ping round trip."""
+    monkeypatch.setattr(client_mod, "ANSIBLE_TOKEN", None)
+    monkeypatch.setattr(client_mod, "ANSIBLE_USERNAME", "u")
+    monkeypatch.setattr(client_mod, "ANSIBLE_PASSWORD", "p")
+    monkeypatch.setattr(client_mod, "_cached_token", "pre-cached-token")
+
+    with client_mod.get_ansible_client() as first:
+        pass
+    with client_mod.get_ansible_client() as second:
+        pass
+
+    assert ("GET", "/api/v2/ping/") in first.requests
+    assert second.requests == []
+
+
+def test_get_ansible_client_preflights_again_after_ttl(fake_client_class, monkeypatch):
+    monkeypatch.setattr(client_mod, "ANSIBLE_TOKEN", None)
+    monkeypatch.setattr(client_mod, "ANSIBLE_USERNAME", "u")
+    monkeypatch.setattr(client_mod, "ANSIBLE_PASSWORD", "p")
+    monkeypatch.setattr(client_mod, "_cached_token", "pre-cached-token")
+    monkeypatch.setattr(
+        client_mod,
+        "_cached_token_verified_at",
+        client_mod.time.monotonic() - client_mod._PREFLIGHT_TTL_SECONDS - 1,
+    )
+
+    with client_mod.get_ansible_client() as client:
+        pass
+
     assert ("GET", "/api/v2/ping/") in client.requests
 
 

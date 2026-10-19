@@ -138,7 +138,7 @@ def get_dashboard_stats() -> str:
 
 
 # =============================================================================
-# System Job Templates & System Jobs (NEW)
+# System Job Templates & System Jobs
 # =============================================================================
 
 

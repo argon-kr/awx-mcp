@@ -14,15 +14,7 @@ from __future__ import annotations
 import logging
 import os
 
-# Effective MCP transports. ``stdio`` is the local default; the network
-# transports are reachable only via the ``--serve`` admin flag (streamable-http
-# by default, sse via ``--serve --sse``). Kept here as the single source of
-# truth so both server.py and __init__.py consume the same tuple.
-VALID_TRANSPORTS = ("stdio", "streamable-http", "sse")
-
-
-def _truthy(value: str | None) -> bool:
-    return (value or "").lower() in ("true", "1", "yes")
+from .utils import truthy
 
 
 def resolve_ssl_verify(logger: logging.Logger, target_url: str | None) -> bool | str:
@@ -36,7 +28,7 @@ def resolve_ssl_verify(logger: logging.Logger, target_url: str | None) -> bool |
     * ``<path>`` -> custom CA bundle (must exist, else ``ValueError``).
     * ``True``   -> system trust store (default).
     """
-    enabled = _truthy(os.environ.get("ANSIBLE_SSL_VERIFY", "true"))
+    enabled = truthy(os.environ.get("ANSIBLE_SSL_VERIFY", "true"))
     ca_bundle = os.environ.get("ANSIBLE_CA_BUNDLE") or None
 
     if not enabled:

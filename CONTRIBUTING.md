@@ -36,8 +36,15 @@ uv run ruff format --check .
 
 1. Fork the repo and create a branch from `main`.
 2. Make your changes. Add or update tests as needed.
-3. Run `pytest` and `ruff check .` locally. Both must pass.
-4. Open a pull request against `main`. Describe what changed and why.
+3. Run the same checks CI runs. All must pass:
+   ```bash
+   uv run ruff check . && uv run ruff format --check .
+   uv run mypy awx_mcp/
+   uv run python scripts/check_doc_parity.py
+   uv run pytest --cov=awx_mcp --cov-fail-under=80
+   ```
+4. Add a line under `## [Unreleased]` in `CHANGELOG.md` for any user-visible change.
+5. Open a pull request against `main`. Describe what changed and why.
 
 Keep PRs focused. One logical change per PR is easier to review and merge.
 
@@ -56,14 +63,16 @@ Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`.
 
 ## Reporting Bugs
 
-Open an issue on GitHub. Include:
+Open an issue with the **Bug report** form on GitHub (blank issues are
+disabled so every report carries the details below). Include:
 
 - AWX version
 - Python version
 - What you ran and what you expected
 - The full error output or traceback
 
-Check existing issues first to avoid duplicates.
+Check existing issues first to avoid duplicates. Usage questions belong in
+[Discussions](https://github.com/lycorp-jp/awx-mcp/discussions).
 
 ## Linting and Type Checking
 
