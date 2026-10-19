@@ -1,0 +1,17 @@
+$ uv run python scripts/demo.py
+LOCAL FIXTURE DEMO - synthetic AWX data, no LLM session
+Connection: MCP stdio -> awx-mcp -> fake AWX on 127.0.0.1
+Credentials: hard-coded fake demo token only. Read-only mode enabled.
+
+> MCP call_tool list_jobs {"status": "failed", "limit": 5}
+{"count":1,"returned":1,"offset":0,"results":[{"id":42,"name":"Demo deploy","status":"failed"}]}
+
+> MCP call_tool get_job_stdout {"job_id": 42}
+Result: status=success, stdout:
+PLAY [Demo deployment] ************************************************
+TASK [Check service] **************************************************
+fatal: [demo-host]: FAILED! => {"msg": "Synthetic health check failed"}
+PLAY RECAP ************************************************************
+demo-host : ok=1 changed=0 unreachable=0 failed=1
+
+PASS: 2 actual MCP read calls, 2 fixture GETs, no write calls.

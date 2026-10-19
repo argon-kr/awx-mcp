@@ -1,28 +1,57 @@
 # AWX MCP Server
 
-[English](README.md) | [🇰🇷 한국어](README.ko.md)
+MCP クライアントから AWX の失敗したジョブや実行ログを確認し、呼び出し元の AWX 権限で自動化を管理できます。ローカルの stdio プロセスとして実行するか、ユーザーごとのトークンを渡す中央サーバーとして共有できます。
 
+![CI](https://github.com/lycorp-jp/awx-mcp/actions/workflows/ci.yml/badge.svg)
+![Release](https://img.shields.io/github/v/release/lycorp-jp/awx-mcp)
 ![Python](https://img.shields.io/badge/Python-≥3.10-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-Apache_2.0-blue)
 ![MCP Tools](https://img.shields.io/badge/MCP_Tools-145-blue)
-![AWX](https://img.shields.io/badge/AWX-24.x-EE0000?logo=redhat&logoColor=white)
+![AWX](https://img.shields.io/badge/AWX-tested_24.6.1-EE0000?logo=redhat&logoColor=white)
 
-LLM が AWX インスタンスと連携できるようにする MCP（Model Context Protocol）サーバーです。
+[English](README.md) | [한국어](README.ko.md)
 
-**145 個のツール**でインベントリ、ホスト、プロジェクト、ジョブテンプレート、ワークフロー、認証情報、実行環境、RBAC、システム管理など AWX のすべての主要機能をカバーします。
+現在は Git リポジトリからインストールできます。**PyPI には公開しません**。初回 release、GHCR イメージ、MCP Registry への公開は未実施のため、Release badge は release なしと表示される場合があります。
 
-> デフォルトでは 141 個のツールが登録されます。残り 4 個（`create_credential`、`update_credential`、`create_user`、`update_user`）は Form mode elicitation で機密データを収集するため、`AWX_MCP_ENABLE_CREDENTIAL_MANAGEMENT=true` を設定した場合のみ有効化されます。詳細は [Credential Management (opt-in)](#credential-management-opt-in) を参照してください。
+## クイックスタート
 
----
+まず uv をインストールしてください: https://docs.astral.sh/uv/
+
+自分の AWX URL とトークンを設定します。以下はトークンをコマンドに直接記述せず、環境変数で渡す読み取り専用の設定です。
+
+```bash
+export ANSIBLE_BASE_URL="https://awx.example.com/"
+export ANSIBLE_TOKEN="REPLACE_WITH_YOUR_AWX_TOKEN"
+export AWX_MCP_READ_ONLY=true
+claude mcp add --scope project awx \
+  -e 'ANSIBLE_BASE_URL=${ANSIBLE_BASE_URL}' \
+  -e 'ANSIBLE_TOKEN=${ANSIBLE_TOKEN}' \
+  -e 'AWX_MCP_READ_ONLY=${AWX_MCP_READ_ONLY}' \
+  -- uvx --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp
+```
+
+`AWX_MCP_READ_ONLY=true` は任意の初期設定です。書き込みツールが必要で、AWX ロールにも権限がある場合に解除してください。サーバープロセスは MCP クライアントから起動します。Claude Desktop などの設定は [MCPクライアント連携](#mcpクライアント連携) を参照してください。
+
+単一引用符により `.mcp.json` に `${VAR}` 参照をそのまま保存します。環境変数を設定したシェルから Claude Code を起動してください。環境変数の展開: https://code.claude.com/docs/en/mcp#environment-variable-expansion-in-mcpjson
+
+## 読み取り専用 fixture デモ
+
+![Read-only MCP fixture demo](docs/demo.gif)
+
+GIF はローカルの fake AWX fixture に対する実際の MCP `list_jobs(status="failed")` と `get_job_stdout(job_id=42)` 呼び出しを示します。データとトークンはすべて架空です。実際の AWX 運用環境や LLM 会話の録画ではなく、MCP プロトコルの動作を再現したデモです。
+
+[実行記録](docs/demo.txt) · [再現方法](docs/demo.tape)
 
 ## 目次
 
 - [クイックスタート](#クイックスタート)
+- [読み取り専用 fixture デモ](#読み取り専用-fixture-デモ)
 - [前提条件](#前提条件)
 - [アーキテクチャ](#アーキテクチャ)
 - [互換性](#互換性)
 - [機能](#機能)
 - [インストール](#インストール)
+- [デプロイモード](#デプロイモード)
 - [設定](#設定)
 - [Credential Management (opt-in)](#credential-management-opt-in)
 - [MCPクライアント連携](#mcpクライアント連携)
@@ -37,46 +66,10 @@ LLM が AWX インスタンスと連携できるようにする MCP（Model Cont
 
 ---
 
-## クイックスタート
-
-このサーバーは [uv](https://docs.astral.sh/uv/) の `uvx` を使って git リポジトリから直接実行します — 手動でのクローンも `uv sync` も不要です。`uvx` は初回実行時にリポジトリ URL からパッケージを取得・ビルドし、キャッシュします。
-
-### Claude Desktop（`claude_desktop_config.json`）
-
-```json
-{
-  "mcpServers": {
-    "awx": {
-      "command": "uvx",
-      "args": ["--from", "git+https://github.com/lycorp-jp/awx-mcp", "awx-mcp"],
-      "env": {
-        "ANSIBLE_BASE_URL": "https://awx.example.com/",
-        "ANSIBLE_TOKEN": "your_api_token"
-      }
-    }
-  }
-}
-```
-
-### Claude Code（CLI）
-
-```bash
-claude mcp add awx \
-  -e ANSIBLE_BASE_URL=https://awx.example.com/ \
-  -e ANSIBLE_TOKEN=your_api_token \
-  -- uvx --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp
-```
-
-設定後、LLM に「AWX に登録されているインベントリの一覧を表示して」のように自然言語でリクエストできます。
-
-> `uvx` は初回フェッチ時にリポジトリをキャッシュします。後で更新を取り込むには一度 `--refresh` を付けて実行してください（`uvx --refresh --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp`）。特定のバージョンに固定するには ref を追加します（`git+https://github.com/lycorp-jp/awx-mcp@vX.Y.Z`）。開発用途では、ローカルクローンも引き続き使えます: `uv run --directory /path/to/awx-mcp awx-mcp`。
-
----
-
 ## 前提条件
 
 - アクセス可能な AWX インスタンスとそのベース URL（REST API v2）、および適切な権限を持つ API トークン（またはユーザー名 + パスワード）
-- [uv](https://docs.astral.sh/uv/)（`uvx` を提供し、クローンなしで git リポジトリから直接サーバーを実行できます）
+- uv: https://docs.astral.sh/uv/（`uvx` を提供し、クローンなしで git リポジトリから直接サーバーを実行できます）
 
 ---
 
@@ -101,7 +94,7 @@ flowchart LR
 
 > LLM がユーザーのリクエストを解析して適切な MCP ツールを選択し、AWX MCP サーバーが AWX REST API を呼び出して結果を返します。
 
-> このサーバーは **STDIO**（デフォルト）、**SSE**、**Streamable HTTP** トランスポートをサポートします。ローカルの MCP クライアントには STDIO を、リモート/共有デプロイには SSE または Streamable HTTP を使用してください。
+> ローカルクライアントには stdio、新しいリモートデプロイには Streamable HTTP を推奨します。SSE は既存クライアント向けの legacy 互換 transport として維持します（`--serve --sse`、`/sse`）。
 
 ---
 
@@ -112,122 +105,58 @@ flowchart LR
 | AWX | 24.6.1（REST API v2） |
 | Python | ≥ 3.10 |
 | MCP トランスポート | STDIO、SSE、Streamable HTTP |
+| バージョン方針 | サーバーバージョンは検証済み AWX バージョンに合わせます。例は `24.6.1` で、同じ AWX に対するサーバーのみの release は `24.6.1.1` のように 4 番目の数字を追加します。これは方針の例であり、release tag の存在を意味しません。 |
+| その他の AWX / Ansible Tower バージョン | この表の検証対象ではありません。導入前に利用するインスタンスで確認してください。 |
 
 ---
 
 ## 機能
 
-### AWX リソース管理
+| 機能 | 利点 |
+|------|------|
+| AWX の 20 領域を扱う 145 ツール | インベントリ、ジョブ、ワークフロー、プロジェクト、RBAC、システム状態を 1 つの MCP クライアントで確認できます。 |
+| ローカル stdio と中央 `--serve` | 個人用プロセス、または呼び出し元ごとの AWX トークンを使う共有サーバーを選べます。 |
+| `AWX_MCP_READ_ONLY=true` | 起動時に読み取りツールだけを公開します。AWX RBAC も適用されます。 |
+| 名前フィルターとページネーション | 名前でリソースを検索し、クライアントに返すレコード数を制限できます。 |
+| トークンキャッシュ | ローカルでユーザー名とパスワードを使う場合、サーバーが生成した OAuth2 トークンを再利用します。 |
+| TLS と opt-in ローカルログ | 通信中の認証情報を保護し、中央サーバーでは呼び出し元ごとのツール実行を記録できます。 |
 
-インベントリ、ホスト、グループ、ジョブテンプレート、ジョブ、プロジェクト、ワークフロー、認証情報、RBAC、組織/チーム/ユーザー、実行環境、スケジュール、システム管理など AWX の全主要機能をカバーします。[ツール一覧](#ツール一覧) を参照してください。
-
-### 技術的特徴
-
-- **モジュール構造**: 20 のドメインモジュールで関心事を分離し、可読性・保守性を向上
-- **トークンキャッシュ**: username/password 認証時にトークンを再利用し、不要なトークン生成を防止
-- **ページネーション制御**: `limit` パラメーターで各レスポンスを要求件数に切り詰めるため、大量の結果セットが LLM コンテキストを圧迫しません
-- **デフォルトで安全（Safe by default）**: 機密データを扱う 4 つの認証情報/ユーザー書き込みツールは、`AWX_MCP_ENABLE_CREDENTIAL_MANAGEMENT=true` が設定されていない限り登録されません。デフォルトのデプロイは機密データを扱うツールを公開しません — [Credential Management (opt-in)](#credential-management-opt-in) 参照
-- **ツールパラメーター露出の低減（opt-in 有効化時）**: 認証情報の入力とパスワードを [MCP Elicitation](https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation)（Form mode）で収集し、ツールパラメーターとしては渡さないようにします
-- **読み取り専用モード**: `AWX_MCP_READ_ONLY=true` を設定すると、起動時に読み取りツール（`list_*`/`get_*`）のみが公開されます
+デフォルトでは 141 ツールが有効です。認証情報/ユーザー書き込みツール 4 個は明示的な opt-in が必要です。その他のツールも機密のインベントリ変数、ジョブ出力、アカウント情報を返す場合があります。書き込みの有効化前に [Credential Management](#credential-management-opt-in) と [セキュリティガイド](docs/security.ja.md) を確認してください。
 
 ---
 
 ## インストール
 
-このサーバーはパッケージインデックスに公開されていませんが、`uvx` が手動クローンや仮想環境なしで git リポジトリから直接実行してくれます。[uv](https://docs.astral.sh/uv/) が `uvx` を提供します。
+パッケージの配布元は GitHub です。現在は main branch を使うか、`@<commit-sha-or-existing-ref>` を追加して実在する revision を選択してください。初回 release 前に release tag があるとは仮定しません。
 
 ```bash
-# 1. 必須環境変数を設定
-export ANSIBLE_BASE_URL="https://awx.example.com/"
-export ANSIBLE_TOKEN="your_api_token"
-
-# 2a. ローカルモード（デフォルト — 自分専用の MCP クライアント向け stdio サーバー）
 uvx --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp
-
-# 2b. チーム向け中央サーバー（管理者）: 1 つの共有サーバー、ユーザーごとのトークン
-uvx --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp --serve --host 0.0.0.0 --port 8443
-#    エンドポイント: http://HOST:8443/mcp（--sse を付けると http://HOST:8443/sse）
-
-# 2c. 中央サーバーへ接続（利用者）: プロキシのみで、ローカルサーバーは起動しない
-uvx --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp --remote https://awx-mcp.example.com:8443/mcp
 ```
 
-`uvx` は初回フェッチ時にリポジトリをキャッシュします。後で更新を取り込むには `--refresh` を付けるか、ref を追加して（`.../awx-mcp@vX.Y.Z`）バージョンを固定してください。開発目的の場合は、リポジトリをクローンした上で `uv run --directory /path/to/awx-mcp awx-mcp`（または `uv sync` の後に `uv run awx-mcp`）を代わりに使用してください。
+`uvx` はリポジトリを取得、ビルドしてキャッシュします。main branch のキャッシュを更新する場合は一度 `--refresh` を追加してください。開発時は `uv run --directory /path/to/awx-mcp awx-mcp --stdio` を使います。その環境の `awx-mcp --version` でインストール済みバージョンを確認できます。
 
-**実行モードは CLI フラグで選択します** — 全体像は [デプロイモード](#デプロイモード) を参照してください:
+### Docker / Podman
 
-| コマンド | モード | 実行者 |
-|---------|------|-------|
-| `awx-mcp` | ローカル stdio サーバー（自分の AWX トークン） | 各ユーザーがローカルで |
-| `awx-mcp --remote <URL>` | 中央サーバーへのクライアントプロキシ | 各ユーザーがローカルで |
-| `awx-mcp --serve [--sse]` | 複数ユーザー向け中央サーバー（リクエストごとのトークン） | 管理者が一度だけ |
+現在はローカル checkout からコンテナをビルドできます。イメージの既定コマンドは中央 HTTP サーバーを起動するため、以下の stdio 実行では `--stdio` を明示してください。
 
-`--host`/`--port` は `--serve` に適用され、`AWX_MCP_HOST` / `AWX_MCP_PORT` 環境変数より優先されます。`--transport` フラグは存在しません（廃止 — [CHANGELOG](CHANGELOG.md) 参照）。
+```bash
+docker build -t awx-mcp:local .
+docker run -i --rm -e ANSIBLE_BASE_URL -e ANSIBLE_TOKEN -e AWX_MCP_READ_ONLY awx-mcp:local --stdio
+```
 
-> ローカルモードの場合、通常は MCP クライアントがプロセスを自動的に起動します（[MCP クライアント連携](#mcpクライアント連携) 参照）。手動で実行する必要はありません。
+値は環境変数で渡し、MCP stdio に `-t` は使用しないでください。GHCR イメージと tag を使うコマンドは初回 release 公開後に案内します。複数ユーザーの HTTP、プロキシ、TLS、replica の設定は [デプロイガイド](docs/deployment.ja.md) を参照してください。
 
 ---
 
 ## デプロイモード
 
-awx-mcp は CLI フラグで選択される 3 つのモードのいずれかで動作します。トークンは常に `ANSIBLE_TOKEN` で渡すユーザー自身の AWX 個人アクセストークンで、違いはフラグのみです。
+| コマンド | モード | 認証 |
+|---------|--------|------|
+| `awx-mcp` / `awx-mcp --stdio` | ローカル stdio | 自分の AWX トークン、またはユーザー名/パスワード |
+| `awx-mcp --remote <URL>` | 中央サーバーへのローカルプロキシ | 自分の AWX トークンのみ |
+| `awx-mcp --serve` | 中央 Streamable HTTP サーバー | 各リクエストの呼び出し元トークン |
 
-### 1. ローカル（デフォルト）
-
-各ユーザーが、自分のトークンで AWX と通信するローカル stdio サーバーを実行します。
-
-```json
-{
-  "mcpServers": {
-    "awx": {
-      "command": "uvx",
-      "args": ["--from", "git+https://github.com/lycorp-jp/awx-mcp", "awx-mcp"],
-      "env": {
-        "ANSIBLE_BASE_URL": "https://awx.example.com/",
-        "ANSIBLE_TOKEN": "your_api_token"
-      }
-    }
-  }
-}
-```
-
-自分のツール呼び出しをローカルにも記録したい場合は `AWX_MCP_USAGE_LOG_FILE` を設定してください。
-
-### 2. 中央サーバー — 管理者向け（`--serve`）
-
-管理者が**1 つ**の共有サーバーを実行します。サーバー自体は AWX の資格情報を保持せず、各リクエストは**呼び出し元自身のトークン**で認証され、すべてのツール呼び出しは利用ログでその呼び出し元に帰属します。呼び出し元のトークンがリクエストヘッダーで送信されるため、TLS の利用を強く推奨します。
-
-```bash
-export ANSIBLE_BASE_URL=https://awx.example.com/
-export AWX_MCP_USAGE_LOG_FILE=/var/log/awx-mcp/usage.jsonl   # ユーザーごとの帰属
-export AWX_MCP_TLS_ENABLE=true
-export AWX_MCP_TLS_CERT=/etc/awx-mcp/cert.pem
-export AWX_MCP_TLS_KEY=/etc/awx-mcp/key.pem
-uvx --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp --serve --host 0.0.0.0 --port 8443        # sse トランスポートを使う場合は --sse を追加
-```
-
-`--serve` モードでは `ANSIBLE_TOKEN` / `ANSIBLE_USERNAME` / `ANSIBLE_PASSWORD` は無視されます（設定されていると警告がログに出力されます）— サーバー自身は独自のアイデンティティを持ちません。
-
-### 3. 中央サーバー — 利用者向け（`--remote`）
-
-各ユーザーは、中央サーバーへリレーする stdio **プロキシ**を実行し、自分のトークンを `Authorization: Bearer` ヘッダーとして注入します。ローカルサーバーは起動されず、中央サーバーが稼働している必要があります。
-
-```json
-{
-  "mcpServers": {
-    "awx": {
-      "command": "uvx",
-      "args": ["--from", "git+https://github.com/lycorp-jp/awx-mcp",
-               "awx-mcp", "--remote", "https://awx-mcp.example.com:8443/mcp"],
-      "env": { "ANSIBLE_TOKEN": "your_api_token" }
-    }
-  }
-}
-```
-
-`ANSIBLE_BASE_URL` は不要です（中央サーバーが AWX にアクセスします）。プロキシモードは**個人アクセストークン専用**です — `ANSIBLE_USERNAME`/`PASSWORD` は Bearer ヘッダーとして転送できません。ここでの `ANSIBLE_SSL_VERIFY`/`ANSIBLE_CA_BUNDLE` は AWX ではなく**中央サーバー**への接続を検証します。ローカルにも利用ログを残したい場合は `AWX_MCP_USAGE_LOG_FILE`（任意で `AWX_MCP_USAGE_USER`）を設定してください。
-
-> `headers` ブロックで `${VAR}` 展開をサポートする MCP クライアントであれば、プロキシを介さず中央サーバーへ直接接続できます: `{ "type": "streamable-http", "url": "https://awx-mcp.example.com:8443/mcp", "headers": { "Authorization": "Bearer ${AWX_TOKEN}" } }`。
+中央サーバーは静的な AWX 認証情報を無視します。TLS でトークンを保護し、ネットワークアクセスを制限してください。`--host` と `--port` は環境変数より優先されます。[デプロイ例、直接 HTTP 接続、replica 設定](docs/deployment.ja.md) と [TLS およびログ](docs/security.ja.md) を参照してください。
 
 ---
 
@@ -245,13 +174,13 @@ uvx --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp --serve --host 0.0.0
 
 **方法 1: API トークン（推奨）**
 
-AWX UI であらかじめ生成したトークンを使います。トークンは期限切れにならないため、より安定した方法です。
+AWX UI で事前に作成したトークンを使います。AWX の方針により期限切れや失効が発生します。必要最小限の権限と scope を選び、必要に応じて更新してください。
 
 | 変数 | 説明 |
 |------|------|
 | `ANSIBLE_TOKEN` | 事前生成済みの API トークン |
 
-> AWX UI でのトークン生成: ユーザープロフィール > トークン > 追加 > Scope: Write
+> AWX UI で作成: ユーザープロフィール > トークン > 追加。読み取り専用なら Read scope、書き込みが必要な場合だけ Write を選びます。AWX RBAC もアクセスを制限します。
 
 **方法 2: ユーザー名 + パスワード**
 
@@ -266,12 +195,12 @@ AWX UI であらかじめ生成したトークンを使います。トークン�
 
 | 変数 | デフォルト | 説明 |
 |------|-----------|------|
-| `ANSIBLE_SSL_VERIFY` | `true` | TLS 証明書検証（`true`/`false`）。検証は**デフォルトで有効**です。`false` にすると検証が無効になります（**非推奨（危険）** — 警告がログに出力されます。CA バンドルを持たない開発/自己署名環境でのみ使用してください）。 |
+| `ANSIBLE_SSL_VERIFY` | `true` | TLS 証明書検証（`true`/`false`）。検証は**デフォルトで有効**です。`false` にすると検証が無効になります（**非推奨（危険）** - 警告がログに出力されます。CA バンドルを持たない開発/自己署名環境でのみ使用してください）。 |
 | `ANSIBLE_CA_BUNDLE` | 未設定 | 検証が有効な場合に信頼するカスタム CA バンドル/自己署名証明書（PEM）へのパス。検証を無効にせずに、プライベート CA を使用する AWX インスタンスへ接続できます。パスが存在しない場合、サーバーは起動時に即座に失敗します。 |
 | `ANSIBLE_LOG_LEVEL` | `INFO` | ログレベル（`DEBUG`、`INFO`、`WARNING`、`ERROR`） |
 | `AWX_HTTP_TIMEOUT_READ` | `90` | AWX API リクエスト 1 件あたりの読み取りタイムアウト（秒）。低速な AWX で大きな `get_job_stdout` / `get_job_events` 呼び出しがタイムアウトする場合に増やします。 |
 | `AWX_MCP_ENABLE_CREDENTIAL_MANAGEMENT` | `false` | Form mode elicitation で機密データを収集する 4 つの認証情報/ユーザー書き込みツールを有効化するか。[Credential Management (opt-in)](#credential-management-opt-in) を参照。 |
-| `AWX_MCP_READ_ONLY` | `false` | 読み取り専用モード。`--serve` の中央サーバーでは、`true` にするとすべての書き込み/破壊的ツールがグローバルに登録解除されます(ユーザー側で再有効化はできません)。`--remote` プロキシモードでは、`true` はそのユーザーのセッションのみを制限します(プロキシが `X-AWX-Read-Only` を送信し、サーバーはその呼び出し元の書き込み呼び出しを拒否します)。あくまで自己制限としての機能です — [デプロイモード](#デプロイモード) を参照。 |
+| `AWX_MCP_READ_ONLY` | `false` | 読み取り専用モード。`--serve` の中央サーバーでは、`true` にするとすべての書き込み/破壊的ツールがグローバルに登録解除されます(ユーザー側で再有効化はできません)。`--remote` プロキシモードでは、`true` はそのユーザーのセッションのみを制限します(プロキシが `X-AWX-Read-Only` を送信し、サーバーはその呼び出し元の書き込み呼び出しを拒否します)。あくまで自己制限としての機能です - [デプロイモード](docs/deployment.ja.md) を参照。 |
 | `AWX_MCP_REMOTE_URL` | 未設定 | プロキシモード用の中央サーバー URL(`--remote <URL>` と同等。フラグの方が優先されます)。 |
 | `AWX_MCP_HOST` | `127.0.0.1` | `--serve` サーバーのバインドホスト。`--host` で上書きされます。 |
 | `AWX_MCP_PORT` | `8000` | `--serve` サーバーのバインドポート。`--port` で上書きされます。 |
@@ -280,51 +209,22 @@ AWX UI であらかじめ生成したトークンを使います。トークン�
 | `AWX_MCP_TLS_KEY` | 未設定 | サーバー TLS 秘密鍵（PEM）へのパス。TLS が有効な場合に必須です。 |
 | `AWX_MCP_TLS_KEY_PASSWORD` | 未設定 | 秘密鍵が暗号化されている場合のパスワード。任意。 |
 | `AWX_MCP_STATELESS_HTTP` | `false` | ステートレス streamable-http モード。各リクエストが自己完結し、プロセスにセッションごとの状態を保持しません。単純なラウンドロビン型ロードバランサーの背後で複数の `--serve` レプリカを運用する場合に必要です（そうしないと、あるレプリカで作成されたセッションが別のレプリカにルーティングされた際に 404 になります）。デフォルト（off）では、単一インスタンス / sse 構成のステートフルなセッション動作がそのまま維持されます。 |
-| `AWX_MCP_USAGE_LOG_FILE` | 未設定 | JSON Lines 形式の利用ログファイルへのパス。MCP ツール呼び出しごとに 1 件の JSON ドキュメント（`@timestamp`、`type`、`user`、`tool`、`params`（マスキングされた呼び出し引数）、`trace_id`、`server_version`、`success`、`latency_ms`、`auth_mode`、`transport`、`awx_host`、失敗時の `error{type,message}`）が記録されます。`--remote` プロキシを含むすべてのモードで動作します。未設定の場合は計装が無効になります。[詳細利用ログ](#詳細利用ログ) を参照。 |
+| `AWX_MCP_USAGE_LOG_FILE` | 未設定 | JSON Lines 形式の利用ログファイルへのパス。MCP ツール呼び出しごとに 1 件の JSON ドキュメント（`@timestamp`、`type`、`user`、`tool`、`params`（マスキングされた呼び出し引数）、`trace_id`、`server_version`、`success`、`latency_ms`、`auth_mode`、`transport`、`awx_host`、失敗時の `error{type,message}`）が記録されます。`--remote` プロキシを含むすべてのモードで動作します。未設定の場合は計装が無効になります。[詳細利用ログ](docs/security.ja.md#詳細利用ログ) を参照。 |
 | `AWX_MCP_USAGE_USER` | 未設定 | プロキシのローカル利用ログで `user` フィールドに使うラベル（プロキシモードにはユーザー名を解決する AWX アクセスがないため、デフォルトは `local`）。 |
-| `AWX_MCP_ACCESS_LOG_FILE` | 未設定 | `--serve` サーバー用の JSON Lines アクセスログファイルへのパス。受信したすべての HTTP リクエストが記録されます（クライアント IP、メソッド、パス、ステータス、レイテンシ）。利用ログと同様に、毎日深夜（UTC）にローテーションします。`--serve` モードでのみ有効です — stdio と `--remote` プロキシには HTTP ソケットがありません。 |
+| `AWX_MCP_ACCESS_LOG_FILE` | 未設定 | `--serve` サーバー用の JSON Lines アクセスログファイルへのパス。受信したすべての HTTP リクエストが記録されます（クライアント IP、メソッド、パス、ステータス、レイテンシ）。利用ログと同様に、毎日深夜（UTC）にローテーションします。`--serve` モードでのみ有効です - stdio と `--remote` プロキシには HTTP ソケットがありません。 |
 | `AWX_MCP_SERVER_LOG_FILE` | 未設定 | サーバー診断ログファイルへのパス。既存の stderr 診断・エラー出力をそのままファイルにも記録します。未設定の場合は stderr のみで、ファイルは作成されません。 |
 | `AWX_MCP_SERVER_LOG_FORMAT` | `plain` | サーバー診断ログの形式: `plain` または `json`。 |
 | `AWX_MCP_LOG_BACKUP_COUNT` | `7` | ローテーションしたログファイルの保持数。両方のログファイルは毎日 UTC 深夜 0 時に日付サフィックス付きでローテーションされます。 |
 
 ### TLS / 証明書検証
 
-TLS 証明書検証は**デフォルトで有効**です（`ANSIBLE_SSL_VERIFY=true`）。AWX インスタンスがプライベート/内部 CA が発行した証明書（または自己署名証明書）を使用している場合は、`ANSIBLE_CA_BUNDLE` に CA バンドル（PEM）のパスを設定してください — 検証を有効にしたままそのCAを信頼できるようになり、検証を無効化するより推奨される方法です。
-
-`ANSIBLE_SSL_VERIFY=false` を設定すると検証が完全に無効になります。この値が使用されるたびにサーバーが警告をログに出力するため、開発環境でのみ使用してください。スキームのない `ANSIBLE_BASE_URL` ホストは自動的に `https://` へ引き上げられます。明示的な `http://` URL はそのまま使用されますが、API トークンが暗号化されずに送信されるため、サーバーが警告をログに出力します。
-
-### HTTPS で配信（インバウンド TLS）
-
-これは**インバウンド** TLS です — MCP クライアントからこのサーバーへの接続を暗号化するもので、`ANSIBLE_SSL_VERIFY` が制御するアウトバウンドの AWX 証明書検証とは方向が異なります。両者を混同しないでください。
-
-`--serve` の中央サーバー（streamable-http または sse）にのみ適用されます。ローカル stdio モードはネットワークソケットを持たないローカルパイプであるため TLS は適用されず、セキュリティはプロセス/ホストの分離によって確保されます。
-
-有効化するには、`AWX_MCP_TLS_ENABLE=true` とともに `AWX_MCP_TLS_CERT`、`AWX_MCP_TLS_KEY` を設定してください（鍵が暗号化されている場合は `AWX_MCP_TLS_KEY_PASSWORD` も設定）:
-
-```bash
-export AWX_MCP_TLS_ENABLE=true
-export AWX_MCP_TLS_CERT=/path/to/server.crt
-export AWX_MCP_TLS_KEY=/path/to/server.key
-uvx --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp --serve --host 0.0.0.0 --port 8443
-```
-
-**重要:** `--serve` モードでは各リクエストが `Authorization` ヘッダー内の呼び出し元自身の AWX トークンによって*実際に認証*されており、TLS はそのトークンを転送時に保護します。そのため、ネットワークに公開するデプロイでは TLS を有効化する（または認証機能を持つ TLS リバースプロキシの背後に配置する）ことは任意ではなく重要です。ループバック以外にバインドしつつ TLS が無効な場合、起動時に警告がログに出力されます。Kubernetes では ingress で TLS を終端するのが一般的な方法であり、プロセス内 TLS は Pod までのエンドツーエンド暗号化が必要な場合にのみ必要です。
-
-### 詳細利用ログ
-
-利用ログは opt-in 方式です。`AWX_MCP_USAGE_LOG_FILE` に書き込み可能なパスを設定すると、ツール呼び出しごとに 1 件の JSON ドキュメントを [JSON Lines](https://jsonlines.org/) 形式で記録し始めます。この形式は Filebeat や Fluentd などの外部ログ収集基盤が後で収集・集計しやすいように設計されています。ログが stdout に出力されることはありません — MCP stdio トランスポートはプロトコルメッセージの送受信に stdout を使用するため、ここにログを書き込むとプロトコルストリームが破損します。サーバー自体がログデータをネットワーク経由で送信することもなく、設定したローカルファイルにのみ書き込みます。
-
-すべてのログ行には `type` フィールドがあり、種類ごとに分離できます: `"tool"`（通常の MCP ツール呼び出し）、`"internal_api"`（サーバーが呼び出す `/api/v2/me/` ユーザー解決リクエスト。`tool: "me"` として記録し、HTTP メソッドとパスは別の `method`/`endpoint` フィールドに記録）、`"access"`（HTTP アクセスログ）、`"diagnostic"`（サーバー診断ログ）。`type` フィールドと共通の `@timestamp` タイムスタンプフィールドは 4 種類のレコードで一貫しているため、単一のログインデックスを type でフィルタできます。ツール呼び出しレコードには `params`（呼び出し引数）も含まれ、秘密を示すキー（password、token、key、`inputs` など）や文字列内の `token=`/`password=`/`Bearer` の値はマスキングされます。
-
-`auth_mode` フィールドは `static`（ローカル）または `passthrough`（`--serve`）です。`transport` フィールドは `stdio`、`streamable-http`、`sse`、`proxy` のいずれかです。中央サーバーでは、`user` フィールドは各リクエストのトークンに紐づく AWX アカウントです（ユーザーごとの帰属。トークンごとに一度だけ解決してキャッシュされ、生のトークンやそのハッシュがログに残ることはありません）。`--remote` プロキシ自身のローカルログでは、`transport` は `proxy`、`user` は `AWX_MCP_USAGE_USER`（未設定なら `local`）、`awx_host` は中央サーバーのホストになります。
-
-> **複数の `--serve` レプリカを運用する場合:** 利用ログ・アクセスログ・診断ログはいずれも `TimedRotatingFileHandler` を使用します。スレッドセーフではありますが、共有ボリューム上では**マルチプロセスセーフではありません** — 深夜のローテーション時に複数の書き込みプロセスが競合する可能性があります。各レプリカのログファイルパスを Pod ごとのパスに向けるか、未設定のまま stdout 収集に任せてください。
+TLS 証明書検証は既定で有効です。プライベート CA は `ANSIBLE_CA_BUNDLE` で信頼させてください。`--remote` ではこの検証設定は AWX ではなく中央サーバーに適用されます。ネットワークに公開する中央サーバーには TLS とアクセス制限が必要です。利用/アクセスログは opt-in、診断ログは既定で stderr に出力します。stdout は MCP メッセージ専用です。[TLS、ログフィールド、マスキングの限界、replica の注意事項](docs/security.ja.md) を参照してください。
 
 ---
 
 ## Credential Management (opt-in)
 
-4 つのツール — `create_credential`、`update_credential`、`create_user`、`update_user` — は **Form mode elicitation** でパスワードや認証情報入力などの機密データを収集します。これらはデフォルトでは**登録されない**ため、デフォルトの 141 ツール構成は機密データを扱うツールを一切公開しません。
+`create_credential`、`update_credential`、`create_user`、`update_user` は **Form mode elicitation** でパスワードや認証情報入力を収集するため、既定では登録されません。その他のツールもジョブ stdout やインベントリ変数などの機密データを返す場合があります。
 
 有効化するには以下を設定してください:
 
@@ -366,6 +266,54 @@ claude mcp add awx \
   -- uvx --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp
 ```
 
+### Cursor
+
+以下のリンクは**読み取り専用の設定テンプレート**を追加します。接続設定はまだ完了しません。起動前に Cursor の MCP 設定で `REPLACE_WITH_YOUR_AWX_HTTPS_URL` と `REPLACE_WITH_YOUR_AWX_TOKEN` を**両方とも置換してください**。この設定を version control に含めないでください。
+
+cursor://anysphere.cursor-deeplink/mcp/install?name=awx&config=eyJjb21tYW5kIjoidXZ4IiwiYXJncyI6WyItLWZyb20iLCJnaXQraHR0cHM6Ly9naXRodWIuY29tL2x5Y29ycC1qcC9hd3gtbWNwIiwiYXd4LW1jcCJdLCJlbnYiOnsiQU5TSUJMRV9CQVNFX1VSTCI6IlJFUExBQ0VfV0lUSF9ZT1VSX0FXWF9IVFRQU19VUkwiLCJBTlNJQkxFX1RPS0VOIjoiUkVQTEFDRV9XSVRIX1lPVVJfQVdYX1RPS0VOIiwiQVdYX01DUF9SRUFEX09OTFkiOiJ0cnVlIn19
+
+公式の形式: https://cursor.com/docs/mcp/install-links
+
+### VS Code (native MCP)
+
+`.vscode/mcp.json` またはユーザー MCP 設定に追加します。VS Code が URL とトークンの入力を求め、トークン入力は非表示になります。`env` の参照は以下の `inputs` に対応します。
+
+```json
+{
+  "inputs": [
+    {
+      "id": "awx-url",
+      "type": "promptString",
+      "description": "AWX HTTPS ベース URL"
+    },
+    {
+      "id": "awx-token",
+      "type": "promptString",
+      "description": "AWX API トークン",
+      "password": true
+    }
+  ],
+  "servers": {
+    "awx": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/lycorp-jp/awx-mcp",
+        "awx-mcp"
+      ],
+      "env": {
+        "ANSIBLE_BASE_URL": "${input:awx-url}",
+        "ANSIBLE_TOKEN": "${input:awx-token}",
+        "AWX_MCP_READ_ONLY": "true"
+      }
+    }
+  }
+}
+```
+
+設定リファレンス: https://code.visualstudio.com/docs/agents/reference/mcp-configuration
+
 ### Cline（VS Code）
 
 MCP サーバー設定に以下を追加します:
@@ -385,40 +333,7 @@ MCP サーバー設定に以下を追加します:
 
 ### 中央サーバーへの接続
 
-管理者が中央の `awx-mcp --serve` インスタンスを運用している場合、ユーザーは 2 通りの方法で接続できます。どちらもユーザー自身の AWX トークンを送信しますが、推奨されるプロキシ方式ではトークンを環境変数に保持でき、あらゆる MCP クライアントで動作します。
-
-**プロキシ（推奨）** — ローカル stdio プロセス。トークンは `ANSIBLE_TOKEN` に保持されます:
-
-```json
-{
-  "mcpServers": {
-    "awx": {
-      "command": "uvx",
-      "args": ["--from", "git+https://github.com/lycorp-jp/awx-mcp",
-               "awx-mcp", "--remote", "https://awx-mcp.example.com:8443/mcp"],
-      "env": { "ANSIBLE_TOKEN": "your_api_token" }
-    }
-  }
-}
-```
-
-**Direct HTTP** — `headers` ブロックで `${VAR}` 展開をサポートする MCP クライアント向け（ローカルプロセスなし）:
-
-```json
-{
-  "mcpServers": {
-    "awx": {
-      "type": "streamable-http",
-      "url": "https://awx-mcp.example.com:8443/mcp",
-      "headers": { "Authorization": "Bearer ${AWX_TOKEN}" }
-    }
-  }
-}
-```
-
-sse トランスポート（`awx-mcp --serve --sse`）の場合は `"type": "sse"` と `/sse` エンドポイントを使用してください。
-
-> **セキュリティ（重要）:** `--serve` モードでは各リクエストが呼び出し元自身の AWX トークンで認証され、AWX の RBAC がユーザーごとに適用されます。そのトークンはリクエストヘッダーで送信されるため、トランスポートを保護してください: プロセス内 TLS（`AWX_MCP_TLS_ENABLE`）を有効にするか、認証機能を持つ TLS リバースプロキシの背後に配置し、ファイアウォールでポートアクセスを制限してください。サーバーはデフォルトで `127.0.0.1` にバインドされ、TLS なしでループバック以外にバインドすると警告をログに出力します。
+自分の AWX トークンで stdio プロキシ、または直接 Streamable HTTP 接続を使います。プロキシには `ANSIBLE_TOKEN` が必要ですが `ANSIBLE_BASE_URL` は不要です。ユーザー名/パスワード認証はローカルモードのみです。[プロキシ/直接 HTTP の完全な設定と TLS 要件](docs/deployment.ja.md) を参照してください。
 
 ---
 
@@ -791,7 +706,7 @@ list_projects(project_name="platform")          -> "platform" に一致するプ
 
 **SSL 証明書エラー**
 
-TLS 検証はデフォルトで有効です。AWX インスタンスがプライベート/内部 CA が発行した証明書、または自己署名証明書を使用している場合は、`ANSIBLE_CA_BUNDLE` にその CA/証明書の PEM ファイルパスを設定してください — 検証を有効にしたまま、その証明書を信頼できます。CA 証明書が入手できないなど最後の手段としてのみ、`ANSIBLE_SSL_VERIFY` を `"false"`（文字列）に設定してください。この場合、検証が完全に無効化され、サーバーが警告をログに出力します。詳細は上記の **TLS / 証明書検証** セクションを参照してください。
+TLS 検証はデフォルトで有効です。AWX インスタンスがプライベート/内部 CA が発行した証明書、または自己署名証明書を使用している場合は、`ANSIBLE_CA_BUNDLE` にその CA/証明書の PEM ファイルパスを設定してください - 検証を有効にしたまま、その証明書を信頼できます。CA 証明書が入手できないなど最後の手段としてのみ、`ANSIBLE_SSL_VERIFY` を `"false"`（文字列）に設定してください。この場合、検証が完全に無効化され、サーバーが警告をログに出力します。詳細は [TLS 証明書検証](docs/security.ja.md#tls--証明書検証) を参照してください。
 
 **Connection refused / timeout**
 
@@ -841,4 +756,4 @@ API トークンまたはユーザーアカウントが該当リソースへの�
 
 ## ライセンス
 
-Apache License 2.0 — 詳細は [LICENSE](LICENSE) を参照してください。
+Apache License 2.0 - 詳細は [LICENSE](LICENSE) を参照してください。
