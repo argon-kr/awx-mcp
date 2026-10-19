@@ -6,12 +6,11 @@ Ansible MCP Server - System Tools
 Activity stream, system information, metrics, and system job management.
 """
 
-import json
 from typing import Any
 
 from ..client import get_ansible_client, handle_pagination
 from ..server import read_tool, write_tool
-from ..utils import validate_json_str
+from ..utils import to_json, validate_json_str
 
 # =============================================================================
 # Activity Stream
@@ -79,7 +78,7 @@ def list_activity_stream(
             if collection is not None:
                 endpoint = f"/api/v2/{collection}/{object_id}/activity_stream/"
                 envelope = handle_pagination(client, endpoint, params, with_meta=True)
-                return json.dumps(envelope, indent=2)
+                return to_json(envelope)
             # Unknown type: fall back to a best-effort global filter by type.
             params["object1"] = object_type
 
@@ -90,7 +89,7 @@ def list_activity_stream(
         envelope = handle_pagination(
             client, "/api/v2/activity_stream/", params, with_meta=True
         )
-        return json.dumps(envelope, indent=2)
+        return to_json(envelope)
 
 
 # =============================================================================
@@ -107,7 +106,7 @@ def get_config() -> str:
     """
     with get_ansible_client() as client:
         config = client.request("GET", "/api/v2/config/")
-        return json.dumps(config, indent=2)
+        return to_json(config)
 
 
 @read_tool
@@ -120,7 +119,7 @@ def get_ansible_version() -> str:
     """
     with get_ansible_client() as client:
         info = client.request("GET", "/api/v2/ping/")
-        return json.dumps(info, indent=2)
+        return to_json(info)
 
 
 @read_tool
@@ -132,7 +131,7 @@ def get_dashboard_stats() -> str:
     """
     with get_ansible_client() as client:
         stats = client.request("GET", "/api/v2/dashboard/")
-        return json.dumps(stats, indent=2)
+        return to_json(stats)
 
 
 # =============================================================================
@@ -176,7 +175,7 @@ def list_system_job_templates(
         envelope = handle_pagination(
             client, "/api/v2/system_job_templates/", params, with_meta=True
         )
-        return json.dumps(envelope, indent=2)
+        return to_json(envelope)
 
 
 @read_tool
@@ -191,7 +190,7 @@ def get_system_job_template(template_id: int) -> str:
     """
     with get_ansible_client() as client:
         template = client.request("GET", f"/api/v2/system_job_templates/{template_id}/")
-        return json.dumps(template, indent=2)
+        return to_json(template)
 
 
 @write_tool(destructive=True)
@@ -221,7 +220,7 @@ def launch_system_job(template_id: int, extra_vars: str = None) -> str:
         response = client.request(
             "POST", f"/api/v2/system_job_templates/{template_id}/launch/", data=data
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @read_tool
@@ -256,7 +255,7 @@ def list_system_jobs(
         envelope = handle_pagination(
             client, "/api/v2/system_jobs/", params, with_meta=True
         )
-        return json.dumps(envelope, indent=2)
+        return to_json(envelope)
 
 
 @read_tool
@@ -274,4 +273,4 @@ def get_system_job(job_id: int) -> str:
     """
     with get_ansible_client() as client:
         job = client.request("GET", f"/api/v2/system_jobs/{job_id}/")
-        return json.dumps(job, indent=2)
+        return to_json(job)

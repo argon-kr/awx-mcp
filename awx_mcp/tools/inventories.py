@@ -6,12 +6,11 @@ Ansible MCP Server - Inventory & Inventory Source Tools
 Inventory CRUD, inventory source management, and inventory update monitoring.
 """
 
-import json
 from typing import Any
 
 from ..client import get_ansible_client, handle_pagination
 from ..server import read_tool, write_tool
-from ..utils import validate_json_str
+from ..utils import to_json, validate_json_str
 
 # =============================================================================
 # Inventory Management
@@ -53,7 +52,7 @@ def list_inventories(
         inventories = handle_pagination(
             client, "/api/v2/inventories/", params, with_meta=True
         )
-        return json.dumps(inventories, indent=2)
+        return to_json(inventories)
 
 
 @read_tool
@@ -69,7 +68,7 @@ def get_inventory(inventory_id: int) -> str:
     """
     with get_ansible_client() as client:
         inventory = client.request("GET", f"/api/v2/inventories/{inventory_id}/")
-        return json.dumps(inventory, indent=2)
+        return to_json(inventory)
 
 
 @write_tool()
@@ -100,7 +99,7 @@ def create_inventory(
             "variables": variables,
         }
         response = client.request("POST", "/api/v2/inventories/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(idempotent=True)
@@ -139,7 +138,7 @@ def update_inventory(
         response = client.request(
             "PATCH", f"/api/v2/inventories/{inventory_id}/", data=data
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -155,7 +154,7 @@ def delete_inventory(inventory_id: int) -> str:
     """
     with get_ansible_client() as client:
         client.request("DELETE", f"/api/v2/inventories/{inventory_id}/")
-        return json.dumps(
+        return to_json(
             {"status": "success", "message": f"Inventory {inventory_id} deleted"}
         )
 
@@ -205,7 +204,7 @@ def list_inventory_sources(
         else:
             endpoint = "/api/v2/inventory_sources/"
         sources = handle_pagination(client, endpoint, params, with_meta=True)
-        return json.dumps(sources, indent=2)
+        return to_json(sources)
 
 
 @read_tool
@@ -221,7 +220,7 @@ def get_inventory_source(source_id: int) -> str:
     """
     with get_ansible_client() as client:
         source = client.request("GET", f"/api/v2/inventory_sources/{source_id}/")
-        return json.dumps(source, indent=2)
+        return to_json(source)
 
 
 @write_tool()
@@ -277,7 +276,7 @@ def create_inventory_source(
         if credential_id is not None:
             data["credential"] = credential_id
         response = client.request("POST", "/api/v2/inventory_sources/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(idempotent=True)
@@ -343,7 +342,7 @@ def update_inventory_source(
         response = client.request(
             "PATCH", f"/api/v2/inventory_sources/{source_id}/", data=data
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -361,7 +360,7 @@ def sync_inventory_source(source_id: int) -> str:
         response = client.request(
             "POST", f"/api/v2/inventory_sources/{source_id}/update/"
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -377,7 +376,7 @@ def delete_inventory_source(source_id: int) -> str:
     """
     with get_ansible_client() as client:
         client.request("DELETE", f"/api/v2/inventory_sources/{source_id}/")
-        return json.dumps(
+        return to_json(
             {"status": "success", "message": f"Inventory source {source_id} deleted"}
         )
 
@@ -419,7 +418,7 @@ def list_inventory_updates(
             params,
             with_meta=True,
         )
-        return json.dumps(updates, indent=2)
+        return to_json(updates)
 
 
 @read_tool
@@ -434,7 +433,7 @@ def get_inventory_update(update_id: int) -> str:
     """
     with get_ansible_client() as client:
         update = client.request("GET", f"/api/v2/inventory_updates/{update_id}/")
-        return json.dumps(update, indent=2)
+        return to_json(update)
 
 
 @write_tool(destructive=True)
@@ -452,4 +451,4 @@ def cancel_inventory_update(update_id: int) -> str:
         response = client.request(
             "POST", f"/api/v2/inventory_updates/{update_id}/cancel/"
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)

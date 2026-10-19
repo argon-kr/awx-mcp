@@ -4,11 +4,11 @@
 Ansible MCP Server - Label Tools
 """
 
-import json
 from typing import Any
 
 from ..client import get_ansible_client, handle_pagination
 from ..server import read_tool, write_tool
+from ..utils import to_json
 
 
 @read_tool
@@ -44,7 +44,7 @@ def list_labels(
             params["name__icontains"] = label_name.strip()
 
         labels = handle_pagination(client, "/api/v2/labels/", params, with_meta=True)
-        return json.dumps(labels, indent=2)
+        return to_json(labels)
 
 
 @write_tool()
@@ -62,4 +62,4 @@ def create_label(name: str, organization_id: int) -> str:
     with get_ansible_client() as client:
         data = {"name": name, "organization": organization_id}
         response = client.request("POST", "/api/v2/labels/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)

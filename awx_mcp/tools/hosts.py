@@ -4,12 +4,11 @@
 Ansible MCP Server - Host Management Tools
 """
 
-import json
 from typing import Any
 
 from ..client import get_ansible_client, handle_pagination
 from ..server import read_tool, write_tool
-from ..utils import validate_json_str
+from ..utils import to_json, validate_json_str
 
 
 @read_tool
@@ -51,7 +50,7 @@ def list_hosts(
             endpoint = "/api/v2/hosts/"
 
         hosts = handle_pagination(client, endpoint, params, with_meta=True)
-        return json.dumps(hosts, indent=2)
+        return to_json(hosts)
 
 
 @read_tool
@@ -67,7 +66,7 @@ def get_host(host_id: int) -> str:
     """
     with get_ansible_client() as client:
         host = client.request("GET", f"/api/v2/hosts/{host_id}/")
-        return json.dumps(host, indent=2)
+        return to_json(host)
 
 
 @write_tool()
@@ -105,7 +104,7 @@ def create_host(
             "enabled": enabled,
         }
         response = client.request("POST", "/api/v2/hosts/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(idempotent=True)
@@ -146,7 +145,7 @@ def update_host(
             data["enabled"] = enabled
 
         response = client.request("PATCH", f"/api/v2/hosts/{host_id}/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -162,4 +161,4 @@ def delete_host(host_id: int) -> str:
     """
     with get_ansible_client() as client:
         client.request("DELETE", f"/api/v2/hosts/{host_id}/")
-        return json.dumps({"status": "success", "message": f"Host {host_id} deleted"})
+        return to_json({"status": "success", "message": f"Host {host_id} deleted"})

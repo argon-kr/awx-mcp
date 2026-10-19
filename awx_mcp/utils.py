@@ -23,6 +23,17 @@ def mask_secrets(text: str) -> str:
     return text
 
 
+def to_json(obj: object) -> str:
+    """Serialize a tool result compactly for the MCP text content block.
+
+    Compact separators and no indentation: tool results go straight into the
+    model's context, where pretty-printing whitespace is pure token cost.
+    ``ensure_ascii=False`` keeps non-ASCII names (e.g. Korean/Japanese host or
+    template names) readable instead of ``\\uXXXX`` escapes.
+    """
+    return json.dumps(obj, separators=(",", ":"), ensure_ascii=False)
+
+
 def validate_json_str(value: str, param_name: str) -> str | None:
     """Validate a JSON string parameter.
 

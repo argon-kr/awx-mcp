@@ -4,7 +4,6 @@
 Ansible MCP Server - Credential Management Tools
 """
 
-import json
 from typing import Any
 
 from mcp.server.mcpserver import Context
@@ -12,7 +11,7 @@ from pydantic import BaseModel
 
 from ..client import get_ansible_client, handle_pagination
 from ..server import maybe_credential_management_tool, read_tool, write_tool
-from ..utils import parse_json_str
+from ..utils import parse_json_str, to_json
 
 
 class CredentialInputs(BaseModel):
@@ -55,7 +54,7 @@ def list_credentials(
         credentials = handle_pagination(
             client, "/api/v2/credentials/", params, with_meta=True
         )
-        return json.dumps(credentials, indent=2)
+        return to_json(credentials)
 
 
 @read_tool
@@ -71,7 +70,7 @@ def get_credential(credential_id: int) -> str:
     """
     with get_ansible_client() as client:
         credential = client.request("GET", f"/api/v2/credentials/{credential_id}/")
-        return json.dumps(credential, indent=2)
+        return to_json(credential)
 
 
 @read_tool
@@ -108,7 +107,7 @@ def list_credential_types(
         credential_types = handle_pagination(
             client, "/api/v2/credential_types/", params, with_meta=True
         )
-        return json.dumps(credential_types, indent=2)
+        return to_json(credential_types)
 
 
 @maybe_credential_management_tool
@@ -150,7 +149,7 @@ async def create_credential(
         schema=CredentialInputs,
     )
     if result.action != "accept":
-        return json.dumps(
+        return to_json(
             {"status": "cancelled", "message": "Credential input was declined"}
         )
 
@@ -168,7 +167,7 @@ async def create_credential(
         }
 
         response = client.request("POST", "/api/v2/credentials/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @maybe_credential_management_tool
@@ -211,7 +210,7 @@ async def update_credential(
             schema=CredentialInputs,
         )
         if result.action != "accept":
-            return json.dumps(
+            return to_json(
                 {"status": "cancelled", "message": "Credential input was declined"}
             )
         parsed_inputs, error = parse_json_str(result.data.inputs, "inputs")
@@ -230,7 +229,7 @@ async def update_credential(
         response = client.request(
             "PATCH", f"/api/v2/credentials/{credential_id}/", data=data
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -246,7 +245,7 @@ def delete_credential(credential_id: int) -> str:
     """
     with get_ansible_client() as client:
         client.request("DELETE", f"/api/v2/credentials/{credential_id}/")
-        return json.dumps(
+        return to_json(
             {"status": "success", "message": f"Credential {credential_id} deleted"}
         )
 
@@ -268,4 +267,4 @@ def copy_credential(credential_id: int, new_name: str) -> str:
         response = client.request(
             "POST", f"/api/v2/credentials/{credential_id}/copy/", data=data
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)

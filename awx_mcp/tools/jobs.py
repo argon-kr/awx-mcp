@@ -4,7 +4,6 @@
 Ansible MCP Server - Job Management Tools
 """
 
-import json
 from typing import Any
 
 from ..client import (
@@ -15,6 +14,7 @@ from ..client import (
 )
 from ..exceptions import AnsibleHTTPError
 from ..server import read_tool, write_tool
+from ..utils import to_json
 
 
 @read_tool
@@ -56,7 +56,7 @@ def list_jobs(
             params["status"] = status
 
         jobs = handle_pagination(client, "/api/v2/jobs/", params, with_meta=True)
-        return json.dumps(jobs, indent=2)
+        return to_json(jobs)
 
 
 @read_tool
@@ -73,7 +73,7 @@ def get_job(job_id: int) -> str:
     """
     with get_ansible_client() as client:
         job = client.request("GET", f"/api/v2/jobs/{job_id}/")
-        return json.dumps(job, indent=2)
+        return to_json(job)
 
 
 @write_tool(destructive=True)
@@ -90,7 +90,7 @@ def cancel_job(job_id: int) -> str:
     """
     with get_ansible_client() as client:
         response = client.request("POST", f"/api/v2/jobs/{job_id}/cancel/")
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -106,7 +106,7 @@ def relaunch_job(job_id: int) -> str:
     """
     with get_ansible_client() as client:
         response = client.request("POST", f"/api/v2/jobs/{job_id}/relaunch/")
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @read_tool
@@ -131,7 +131,7 @@ def get_job_events(job_id: int, limit: int = 20, offset: int = 0) -> str:
         events = handle_pagination(
             client, f"/api/v2/jobs/{job_id}/job_events/", params, with_meta=True
         )
-        return json.dumps(events, indent=2)
+        return to_json(events)
 
 
 @read_tool
@@ -149,7 +149,7 @@ def get_job_stdout(job_id: int, format: str = "txt") -> str:
     """
     valid_formats = ["txt", "html", "json", "ansi", "txt_download", "ansi_download"]
     if format not in valid_formats:
-        return json.dumps(
+        return to_json(
             {
                 "status": "error",
                 "message": (
@@ -173,12 +173,12 @@ def get_job_stdout(job_id: int, format: str = "txt") -> str:
                     f" - {response.text[:500]}",
                     status_code=response.status_code,
                 )
-            return json.dumps({"status": "success", "stdout": response.text})
+            return to_json({"status": "success", "stdout": response.text})
         else:
             response = client.request(
                 "GET", f"/api/v2/jobs/{job_id}/stdout/?format={format}"
             )
-            return json.dumps(response, indent=2)
+            return to_json(response)
 
 
 @read_tool
@@ -205,4 +205,4 @@ def get_job_host_summaries(job_id: int, limit: int = 20, offset: int = 0) -> str
             params,
             with_meta=True,
         )
-        return json.dumps(summaries, indent=2)
+        return to_json(summaries)

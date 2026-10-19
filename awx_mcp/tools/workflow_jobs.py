@@ -6,11 +6,11 @@ Ansible MCP Server - Workflow Job & Approval Tools
 Workflow job monitoring, approval management, and approval templates.
 """
 
-import json
 from typing import Any
 
 from ..client import get_ansible_client, handle_pagination
 from ..server import read_tool, write_tool
+from ..utils import to_json
 
 # =============================================================================
 # Workflow Jobs
@@ -57,7 +57,7 @@ def list_workflow_jobs(
         envelope = handle_pagination(
             client, "/api/v2/workflow_jobs/", params, with_meta=True
         )
-        return json.dumps(envelope, indent=2)
+        return to_json(envelope)
 
 
 @read_tool
@@ -75,7 +75,7 @@ def get_workflow_job(job_id: int) -> str:
     """
     with get_ansible_client() as client:
         job = client.request("GET", f"/api/v2/workflow_jobs/{job_id}/")
-        return json.dumps(job, indent=2)
+        return to_json(job)
 
 
 @write_tool(destructive=True)
@@ -94,7 +94,7 @@ def cancel_workflow_job(job_id: int) -> str:
     """
     with get_ansible_client() as client:
         response = client.request("POST", f"/api/v2/workflow_jobs/{job_id}/cancel/")
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -112,7 +112,7 @@ def relaunch_workflow_job(job_id: int) -> str:
     """
     with get_ansible_client() as client:
         response = client.request("POST", f"/api/v2/workflow_jobs/{job_id}/relaunch/")
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @read_tool
@@ -142,7 +142,7 @@ def list_workflow_job_nodes(job_id: int, limit: int = 20, offset: int = 0) -> st
             params,
             with_meta=True,
         )
-        return json.dumps(envelope, indent=2)
+        return to_json(envelope)
 
 
 # =============================================================================
@@ -176,7 +176,7 @@ def list_workflow_approvals(
         envelope = handle_pagination(
             client, "/api/v2/workflow_approvals/", params, with_meta=True
         )
-        return json.dumps(envelope, indent=2)
+        return to_json(envelope)
 
 
 @read_tool
@@ -192,7 +192,7 @@ def get_workflow_approval(approval_id: int) -> str:
     """
     with get_ansible_client() as client:
         approval = client.request("GET", f"/api/v2/workflow_approvals/{approval_id}/")
-        return json.dumps(approval, indent=2)
+        return to_json(approval)
 
 
 @write_tool()
@@ -211,7 +211,7 @@ def approve_workflow(approval_id: int) -> str:
         response = client.request(
             "POST", f"/api/v2/workflow_approvals/{approval_id}/approve/"
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -230,7 +230,7 @@ def deny_workflow(approval_id: int) -> str:
         response = client.request(
             "POST", f"/api/v2/workflow_approvals/{approval_id}/deny/"
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 # =============================================================================
@@ -318,7 +318,7 @@ def list_workflow_approval_templates(
             envelope["partial"] = True
             envelope["pages_fetched"] = timeout_info.get("pages_fetched")
             envelope["budget_seconds"] = timeout_info.get("budget_seconds")
-        return json.dumps(envelope, indent=2)
+        return to_json(envelope)
 
 
 @read_tool
@@ -337,4 +337,4 @@ def get_workflow_approval_template(node_id: int) -> str:
     """
     with get_ansible_client() as client:
         node = client.request("GET", f"/api/v2/workflow_job_template_nodes/{node_id}/")
-        return json.dumps(node, indent=2)
+        return to_json(node)

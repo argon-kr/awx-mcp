@@ -406,9 +406,10 @@ def read_tool(func):
     Always registered (read tools are exposed even in read-only mode) and
     annotated with ``readOnlyHint=True``.
     """
-    return mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))(
-        _surface_tool_errors(instrument_tool(func))
-    )
+    return mcp.tool(
+        annotations=ToolAnnotations(readOnlyHint=True),
+        structured_output=False,
+    )(_surface_tool_errors(instrument_tool(func)))
 
 
 def write_tool(*, destructive: bool = False, idempotent: bool = False):
@@ -429,7 +430,8 @@ def write_tool(*, destructive: bool = False, idempotent: bool = False):
                 readOnlyHint=False,
                 destructiveHint=destructive,
                 idempotentHint=idempotent,
-            )
+            ),
+            structured_output=False,
         )(_surface_tool_errors(instrument_tool(_read_only_gated(func))))
 
     return deco
@@ -454,7 +456,8 @@ def maybe_credential_management_tool(func):
                 readOnlyHint=False,
                 destructiveHint=True,
                 idempotentHint=False,
-            )
+            ),
+            structured_output=False,
         )(_surface_tool_errors(instrument_tool(_read_only_gated(func))))
     return func
 

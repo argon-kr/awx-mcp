@@ -4,11 +4,11 @@
 Ansible MCP Server - Execution Environment Tools
 """
 
-import json
 from typing import Any
 
 from ..client import get_ansible_client, handle_pagination
 from ..server import read_tool, write_tool
+from ..utils import to_json
 
 
 @read_tool
@@ -46,7 +46,7 @@ def list_execution_environments(
         envs = handle_pagination(
             client, "/api/v2/execution_environments/", params, with_meta=True
         )
-        return json.dumps(envs, indent=2)
+        return to_json(envs)
 
 
 @read_tool
@@ -62,7 +62,7 @@ def get_execution_environment(ee_id: int) -> str:
     """
     with get_ansible_client() as client:
         ee = client.request("GET", f"/api/v2/execution_environments/{ee_id}/")
-        return json.dumps(ee, indent=2)
+        return to_json(ee)
 
 
 @write_tool()
@@ -101,7 +101,7 @@ def create_execution_environment(
         if pull is not None:
             data["pull"] = pull
         response = client.request("POST", "/api/v2/execution_environments/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(idempotent=True)
@@ -142,7 +142,7 @@ def update_execution_environment(
         response = client.request(
             "PATCH", f"/api/v2/execution_environments/{ee_id}/", data=data
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -158,6 +158,6 @@ def delete_execution_environment(ee_id: int) -> str:
     """
     with get_ansible_client() as client:
         client.request("DELETE", f"/api/v2/execution_environments/{ee_id}/")
-        return json.dumps(
+        return to_json(
             {"status": "success", "message": f"Execution environment {ee_id} deleted"}
         )

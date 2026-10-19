@@ -4,11 +4,9 @@
 Ansible MCP Server - Schedule Management Tools
 """
 
-import json
-
 from ..client import get_ansible_client, handle_pagination
 from ..server import read_tool, write_tool
-from ..utils import parse_json_str
+from ..utils import parse_json_str, to_json
 
 
 @read_tool
@@ -40,7 +38,7 @@ def list_schedules(
         envelope = handle_pagination(
             client, "/api/v2/schedules/", params, with_meta=True
         )
-        return json.dumps(envelope, indent=2)
+        return to_json(envelope)
 
 
 @read_tool
@@ -56,7 +54,7 @@ def get_schedule(schedule_id: int) -> str:
     """
     with get_ansible_client() as client:
         schedule = client.request("GET", f"/api/v2/schedules/{schedule_id}/")
-        return json.dumps(schedule, indent=2)
+        return to_json(schedule)
 
 
 @write_tool()
@@ -96,7 +94,7 @@ def create_schedule(
         }
 
         response = client.request("POST", "/api/v2/schedules/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(idempotent=True)
@@ -140,7 +138,7 @@ def update_schedule(
         response = client.request(
             "PATCH", f"/api/v2/schedules/{schedule_id}/", data=data
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -156,6 +154,6 @@ def delete_schedule(schedule_id: int) -> str:
     """
     with get_ansible_client() as client:
         client.request("DELETE", f"/api/v2/schedules/{schedule_id}/")
-        return json.dumps(
+        return to_json(
             {"status": "success", "message": f"Schedule {schedule_id} deleted"}
         )

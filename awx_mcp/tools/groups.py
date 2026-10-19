@@ -4,12 +4,11 @@
 Ansible MCP Server - Group Management Tools
 """
 
-import json
 from typing import Any
 
 from ..client import get_ansible_client, handle_pagination
 from ..server import read_tool, write_tool
-from ..utils import validate_json_str
+from ..utils import to_json, validate_json_str
 
 
 @read_tool
@@ -52,7 +51,7 @@ def list_groups(
         else:
             endpoint = "/api/v2/groups/"
         groups = handle_pagination(client, endpoint, params, with_meta=True)
-        return json.dumps(groups, indent=2)
+        return to_json(groups)
 
 
 @read_tool
@@ -68,7 +67,7 @@ def get_group(group_id: int) -> str:
     """
     with get_ansible_client() as client:
         group = client.request("GET", f"/api/v2/groups/{group_id}/")
-        return json.dumps(group, indent=2)
+        return to_json(group)
 
 
 @write_tool()
@@ -100,7 +99,7 @@ def create_group(
             "description": description,
         }
         response = client.request("POST", "/api/v2/groups/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(idempotent=True)
@@ -134,7 +133,7 @@ def update_group(
             data["description"] = description
 
         response = client.request("PATCH", f"/api/v2/groups/{group_id}/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -150,7 +149,7 @@ def delete_group(group_id: int) -> str:
     """
     with get_ansible_client() as client:
         client.request("DELETE", f"/api/v2/groups/{group_id}/")
-        return json.dumps({"status": "success", "message": f"Group {group_id} deleted"})
+        return to_json({"status": "success", "message": f"Group {group_id} deleted"})
 
 
 @write_tool(idempotent=True)
@@ -169,7 +168,7 @@ def add_host_to_group(group_id: int, host_id: int) -> str:
         response = client.request(
             "POST", f"/api/v2/groups/{group_id}/hosts/", data=data
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -190,7 +189,7 @@ def remove_host_from_group(group_id: int, host_id: int) -> str:
             f"/api/v2/groups/{group_id}/hosts/",
             data={"id": host_id, "disassociate": True},
         )
-        return json.dumps(
+        return to_json(
             {
                 "status": "success",
                 "message": f"Host {host_id} removed from group {group_id}",

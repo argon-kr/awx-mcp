@@ -4,10 +4,9 @@
 Ansible MCP Server - Ad Hoc Command Tools
 """
 
-import json
-
 from ..client import get_ansible_client
 from ..server import read_tool, write_tool
+from ..utils import to_json
 
 
 @write_tool(destructive=True)
@@ -35,7 +34,7 @@ def run_ad_hoc_command(
         verbosity: Verbosity level from 0 to 4 (0 is minimal output)
     """
     if verbosity not in range(5):
-        return json.dumps(
+        return to_json(
             {"status": "error", "message": "Verbosity must be between 0 and 4"}
         )
 
@@ -52,7 +51,7 @@ def run_ad_hoc_command(
             data["limit"] = limit
 
         response = client.request("POST", "/api/v2/ad_hoc_commands/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @read_tool
@@ -68,7 +67,7 @@ def get_ad_hoc_command(command_id: int) -> str:
     """
     with get_ansible_client() as client:
         command = client.request("GET", f"/api/v2/ad_hoc_commands/{command_id}/")
-        return json.dumps(command, indent=2)
+        return to_json(command)
 
 
 @write_tool(destructive=True)
@@ -86,4 +85,4 @@ def cancel_ad_hoc_command(command_id: int) -> str:
         response = client.request(
             "POST", f"/api/v2/ad_hoc_commands/{command_id}/cancel/"
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)

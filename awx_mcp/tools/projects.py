@@ -6,7 +6,6 @@ Ansible MCP Server - Project Management Tools
 Project CRUD, SCM sync, playbook listing, and project update monitoring.
 """
 
-import json
 from typing import Any
 
 from ..client import (
@@ -17,6 +16,7 @@ from ..client import (
 )
 from ..exceptions import AnsibleHTTPError
 from ..server import read_tool, write_tool
+from ..utils import to_json
 
 
 @read_tool
@@ -54,7 +54,7 @@ def list_projects(
         envelope = handle_pagination(
             client, "/api/v2/projects/", params, with_meta=True
         )
-        return json.dumps(envelope, indent=2)
+        return to_json(envelope)
 
 
 @read_tool
@@ -70,7 +70,7 @@ def get_project(project_id: int) -> str:
     """
     with get_ansible_client() as client:
         project = client.request("GET", f"/api/v2/projects/{project_id}/")
-        return json.dumps(project, indent=2)
+        return to_json(project)
 
 
 @write_tool()
@@ -100,7 +100,7 @@ def create_project(
         description: Description of the project
     """
     if scm_type not in ["", "git", "hg", "svn", "manual"]:
-        return json.dumps(
+        return to_json(
             {
                 "status": "error",
                 "message": "Invalid SCM type. Must be one of: git, hg, svn, manual",
@@ -108,7 +108,7 @@ def create_project(
         )
 
     if scm_type != "manual" and not scm_url:
-        return json.dumps(
+        return to_json(
             {
                 "status": "error",
                 "message": "SCM URL is required for non-manual SCM types",
@@ -131,7 +131,7 @@ def create_project(
             data["credential"] = credential_id
 
         response = client.request("POST", "/api/v2/projects/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(idempotent=True)
@@ -158,7 +158,7 @@ def update_project(
         description: New description
     """
     if scm_type is not None and scm_type not in ["", "git", "hg", "svn", "manual"]:
-        return json.dumps(
+        return to_json(
             {
                 "status": "error",
                 "message": "Invalid SCM type. Must be one of: git, hg, svn, manual",
@@ -179,7 +179,7 @@ def update_project(
             data["description"] = description
 
         response = client.request("PATCH", f"/api/v2/projects/{project_id}/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -195,7 +195,7 @@ def delete_project(project_id: int) -> str:
     """
     with get_ansible_client() as client:
         client.request("DELETE", f"/api/v2/projects/{project_id}/")
-        return json.dumps(
+        return to_json(
             {"status": "success", "message": f"Project {project_id} deleted"}
         )
 
@@ -213,7 +213,7 @@ def sync_project(project_id: int) -> str:
     """
     with get_ansible_client() as client:
         response = client.request("POST", f"/api/v2/projects/{project_id}/update/")
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 # =============================================================================
@@ -234,7 +234,7 @@ def list_project_playbooks(project_id: int) -> str:
     """
     with get_ansible_client() as client:
         playbooks = client.request("GET", f"/api/v2/projects/{project_id}/playbooks/")
-        return json.dumps(playbooks, indent=2)
+        return to_json(playbooks)
 
 
 # =============================================================================
@@ -274,7 +274,7 @@ def list_project_updates(
             params,
             with_meta=True,
         )
-        return json.dumps(envelope, indent=2)
+        return to_json(envelope)
 
 
 @read_tool
@@ -289,7 +289,7 @@ def get_project_update(update_id: int) -> str:
     """
     with get_ansible_client() as client:
         update = client.request("GET", f"/api/v2/project_updates/{update_id}/")
-        return json.dumps(update, indent=2)
+        return to_json(update)
 
 
 @write_tool(destructive=True)
@@ -307,7 +307,7 @@ def cancel_project_update(update_id: int) -> str:
         response = client.request(
             "POST", f"/api/v2/project_updates/{update_id}/cancel/"
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @read_tool
@@ -324,7 +324,7 @@ def get_project_update_stdout(update_id: int, format: str = "txt") -> str:
     """
     valid_formats = ["txt", "html", "json", "ansi", "txt_download", "ansi_download"]
     if format not in valid_formats:
-        return json.dumps(
+        return to_json(
             {
                 "status": "error",
                 "message": (
@@ -351,9 +351,9 @@ def get_project_update_stdout(update_id: int, format: str = "txt") -> str:
                     f" - {response.text[:500]}",
                     status_code=response.status_code,
                 )
-            return json.dumps({"status": "success", "stdout": response.text})
+            return to_json({"status": "success", "stdout": response.text})
         else:
             response = client.request(
                 "GET", f"/api/v2/project_updates/{update_id}/stdout/?format={format}"
             )
-            return json.dumps(response, indent=2)
+            return to_json(response)

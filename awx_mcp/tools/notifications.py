@@ -4,11 +4,11 @@
 Ansible MCP Server - Notification Template Tools
 """
 
-import json
 from typing import Any
 
 from ..client import get_ansible_client, handle_pagination
 from ..server import read_tool, write_tool
+from ..utils import to_json
 
 
 @read_tool
@@ -46,7 +46,7 @@ def list_notification_templates(
         envelope = handle_pagination(
             client, "/api/v2/notification_templates/", params, with_meta=True
         )
-        return json.dumps(envelope, indent=2)
+        return to_json(envelope)
 
 
 @read_tool
@@ -64,7 +64,7 @@ def get_notification_template(template_id: int) -> str:
         template = client.request(
             "GET", f"/api/v2/notification_templates/{template_id}/"
         )
-        return json.dumps(template, indent=2)
+        return to_json(template)
 
 
 @write_tool()
@@ -82,4 +82,4 @@ def test_notification_template(template_id: int) -> str:
         response = client.request(
             "POST", f"/api/v2/notification_templates/{template_id}/test/"
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
