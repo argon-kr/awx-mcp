@@ -36,6 +36,10 @@ uv run ruff format --check .
 
 1. Fork the repo and create a branch from `main`.
 2. Make your changes. Add or update tests as needed.
+   After changing tools or their docstrings, run `uv run python scripts/gen_tool_docs.py`.
+   This updates the generated tables in all three READMEs and current tool-count
+   claims from actual MCP registration. Keep narrative translations outside the
+   generated regions up to date. Tool summaries use the original English docstring.
 3. Run the same checks CI runs. All must pass:
    ```bash
    uv run ruff check . && uv run ruff format --check .

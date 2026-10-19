@@ -25,7 +25,7 @@ Keep PRs focused — one logical change per PR.
 - [ ] `uv run ruff check .` passes.
 - [ ] `uv run pytest tests/ -v` passes.
 - [ ] I added or updated tests for my change.
-- [ ] I updated the docs (README.md / README.ko.md / README.ja.md) and the tool counts stay consistent (`uv run python scripts/check_doc_parity.py`).
+- [ ] I regenerated tool tables and counts (`uv run python scripts/gen_tool_docs.py`) and doc parity passes (`uv run python scripts/check_doc_parity.py`).
 - [ ] I updated `CHANGELOG.md` under the unreleased section.
 - [ ] I did not commit secrets, tokens, or internal hostnames.
 
