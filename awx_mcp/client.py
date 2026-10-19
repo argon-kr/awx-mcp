@@ -121,9 +121,9 @@ class AnsibleClient:
     def __init__(
         self,
         base_url: str,
-        username: str = None,
-        password: str = None,
-        token: str = None,
+        username: str | None = None,
+        password: str | None = None,
+        token: str | None = None,
     ):
         # Normalize: accept ANSIBLE_BASE_URL with or without a trailing slash.
         # All endpoints are joined as f"{base_url}/api/...", so a trailing slash

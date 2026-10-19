@@ -13,8 +13,8 @@ from ..utils import to_json
 
 @read_tool
 def list_teams(
-    organization_id: int = None,
-    team_name: str = None,
+    organization_id: int | None = None,
+    team_name: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> str:
@@ -95,7 +95,9 @@ def create_team(name: str, organization_id: int, description: str = "") -> str:
 
 
 @write_tool(idempotent=True)
-def update_team(team_id: int, name: str = None, description: str = None) -> str:
+def update_team(
+    team_id: int, name: str | None = None, description: str | None = None
+) -> str:
     """Update an AWX team.
 
     Use this to adjust team identity details while preserving existing RBAC

@@ -19,7 +19,7 @@ from ..utils import to_json
 
 @read_tool
 def list_workflow_jobs(
-    status: str = None,
+    status: str | None = None,
     limit: int = 20,
     offset: int = 0,
     order_by: str = "-created",
@@ -152,7 +152,7 @@ def list_workflow_job_nodes(job_id: int, limit: int = 20, offset: int = 0) -> st
 
 @read_tool
 def list_workflow_approvals(
-    status: str = None, limit: int = 20, offset: int = 0
+    status: str | None = None, limit: int = 20, offset: int = 0
 ) -> str:
     """List AWX workflow approval requests, optionally filtered by status.
 
@@ -240,7 +240,7 @@ def deny_workflow(approval_id: int) -> str:
 
 @read_tool
 def list_workflow_approval_templates(
-    workflow_template_id: int = None, limit: int = 20, offset: int = 0
+    workflow_template_id: int | None = None, limit: int = 20, offset: int = 0
 ) -> str:
     """List AWX workflow approval template nodes.
 

@@ -82,18 +82,16 @@ Type checking uses `mypy`:
 uv run mypy awx_mcp/
 ```
 
-`mypy` runs as a CI step on every PR with `continue-on-error: true` — it
-currently reports no issues, but is surfaced as a warning rather than a hard
-gate so the build does not break on new type findings. Pinned dev tool versions
-live in `pyproject.toml [dependency-groups] dev`.
+`mypy` is a hard CI gate (`no_implicit_optional = true`). Pinned dev tool
+versions live in `pyproject.toml [dependency-groups] dev`.
 
 ### Type checking notes
 
-The `[tool.mypy]` config is intentionally lenient (`no_implicit_optional = false`)
-to accommodate the `name: str = None` implicit-Optional pattern used across the
-tool function signatures. A future change may set `no_implicit_optional = true`
-and promote the CI step from `continue-on-error: true` to a hard gate once the
-codebase is comfortable under stricter settings.
+Optional tool parameters must be spelled `x: str | None = None`, never the
+implicit `x: str = None`. Besides failing mypy, the implicit form renders in
+`tools/list` as a JSON Schema whose `"type": "string"` contradicts its
+`"default": null`, which strict MCP clients reject. Ruff rule `RUF013` catches
+it at lint time.
 
 ## Code of Conduct
 

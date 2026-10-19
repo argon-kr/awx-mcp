@@ -13,7 +13,7 @@ from ..utils import to_json
 
 @read_tool
 def list_labels(
-    label_name: str = None,
+    label_name: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> str:

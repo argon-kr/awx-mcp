@@ -69,16 +69,15 @@ testpaths = ["tests"]
 target-version = "py310"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
+# RUF013: no implicit Optional (`x: str = None`) — it renders as a JSON Schema
+# whose type ("string") contradicts its default (null) in tools/list.
+select = ["E", "F", "I", "UP", "RUF013"]
 
 [tool.mypy]
 python_version = "3.10"
 files = ["awx_mcp/"]
 ignore_missing_imports = true
-# Lenient baseline: existing tools use the `name: str = None` PEP 484 implicit-Optional
-# pattern across 50+ sites. Ratchet to `no_implicit_optional = true` and progressively
-# tighter checks in a future sprint (see CONTRIBUTING.md → "Type checking ratchet plan").
-no_implicit_optional = false
+no_implicit_optional = true
 warn_unused_ignores = true
 
 [dependency-groups]

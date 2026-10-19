@@ -44,7 +44,10 @@ _ACTIVITY_STREAM_PATHS = {
 
 @read_tool
 def list_activity_stream(
-    limit: int = 20, offset: int = 0, object_type: str = None, object_id: int = None
+    limit: int = 20,
+    offset: int = 0,
+    object_type: str | None = None,
+    object_id: int | None = None,
 ) -> str:
     """List AWX activity stream audit entries.
 
@@ -141,7 +144,7 @@ def get_dashboard_stats() -> str:
 
 @read_tool
 def list_system_job_templates(
-    template_name: str = None,
+    template_name: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> str:
@@ -194,7 +197,7 @@ def get_system_job_template(template_id: int) -> str:
 
 
 @write_tool(destructive=True)
-def launch_system_job(template_id: int, extra_vars: str = None) -> str:
+def launch_system_job(template_id: int, extra_vars: str | None = None) -> str:
     """Launch an AWX maintenance system job from a system job template.
 
     Starts asynchronous controller maintenance work and returns a system job

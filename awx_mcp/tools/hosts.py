@@ -13,10 +13,10 @@ from ..utils import to_json, validate_json_str
 
 @read_tool
 def list_hosts(
-    inventory_id: int = None,
+    inventory_id: int | None = None,
     limit: int = 20,
     offset: int = 0,
-    hostname: str = None,
+    hostname: str | None = None,
 ) -> str:
     """List AWX hosts.
 
@@ -108,10 +108,10 @@ def create_host(
 @write_tool(idempotent=True)
 def update_host(
     host_id: int,
-    name: str = None,
-    variables: str = None,
-    description: str = None,
-    enabled: bool = None,
+    name: str | None = None,
+    variables: str | None = None,
+    description: str | None = None,
+    enabled: bool | None = None,
 ) -> str:
     """Update AWX host metadata and variables.
 

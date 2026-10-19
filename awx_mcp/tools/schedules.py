@@ -11,7 +11,7 @@ from ..utils import parse_json_str, to_json
 
 @read_tool
 def list_schedules(
-    unified_job_template_id: int = None, limit: int = 20, offset: int = 0
+    unified_job_template_id: int | None = None, limit: int = 20, offset: int = 0
 ) -> str:
     """List AWX schedules, optionally filtered by template.
 
@@ -98,10 +98,10 @@ def create_schedule(
 @write_tool(idempotent=True)
 def update_schedule(
     schedule_id: int,
-    name: str = None,
-    rrule: str = None,
-    description: str = None,
-    extra_data: str = None,
+    name: str | None = None,
+    rrule: str | None = None,
+    description: str | None = None,
+    extra_data: str | None = None,
 ) -> str:
     """Update an AWX schedule.
 

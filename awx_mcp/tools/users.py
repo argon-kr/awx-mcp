@@ -20,7 +20,7 @@ class PasswordInput(BaseModel):
 
 @read_tool
 def list_users(
-    username: str = None,
+    username: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> str:
@@ -131,13 +131,13 @@ async def create_user(
 async def update_user(
     user_id: int,
     ctx: Context,
-    username: str = None,
+    username: str | None = None,
     update_password: bool = False,
-    first_name: str = None,
-    last_name: str = None,
-    email: str = None,
-    is_superuser: bool = None,
-    is_system_auditor: bool = None,
+    first_name: str | None = None,
+    last_name: str | None = None,
+    email: str | None = None,
+    is_superuser: bool | None = None,
+    is_system_auditor: bool | None = None,
 ) -> str:
     """Update an AWX user account.
 

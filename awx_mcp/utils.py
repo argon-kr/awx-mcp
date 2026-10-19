@@ -2,6 +2,7 @@
 
 import json
 import re
+from typing import Any
 
 # --- Secret masking -----------------------------------------------------------
 # Shared by the usage instrumentation and the API client so that bearer tokens /
@@ -43,7 +44,7 @@ def validate_json_str(value: str, param_name: str) -> None:
     parse_json_str(value, param_name)
 
 
-def parse_json_str(value: str, param_name: str) -> object:
+def parse_json_str(value: str, param_name: str) -> Any:
     """Parse a JSON string parameter.
 
     Returns the parsed value. Raises ``ValueError`` naming ``param_name`` when

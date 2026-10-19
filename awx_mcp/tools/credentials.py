@@ -20,7 +20,7 @@ class CredentialInputs(BaseModel):
 
 @read_tool
 def list_credentials(
-    credential_name: str = None,
+    credential_name: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> str:
@@ -75,7 +75,7 @@ def get_credential(credential_id: int) -> str:
 
 @read_tool
 def list_credential_types(
-    type_name: str = None,
+    type_name: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> str:
@@ -172,8 +172,8 @@ async def create_credential(
 async def update_credential(
     credential_id: int,
     ctx: Context,
-    name: str = None,
-    description: str = None,
+    name: str | None = None,
+    description: str | None = None,
     update_inputs: bool = False,
 ) -> str:
     """Update AWX credential metadata or inputs.

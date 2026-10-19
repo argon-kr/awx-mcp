@@ -32,7 +32,7 @@ def _ping_topology(client):
 
 @read_tool
 def list_instances(
-    hostname: str = None,
+    hostname: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> str:
@@ -105,7 +105,7 @@ def get_instance(instance_id: int) -> str:
 
 @read_tool
 def list_instance_groups(
-    group_name: str = None,
+    group_name: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> str:

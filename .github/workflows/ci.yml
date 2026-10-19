@@ -18,9 +18,8 @@ jobs:
       - run: uv sync --dev
       - name: Doc parity check
         run: uv run python scripts/check_doc_parity.py
-      - name: Type check (lenient baseline; ratchet plan in CONTRIBUTING.md)
+      - name: Type check
         run: uv run mypy awx_mcp/
-        continue-on-error: true
       - name: Test
         env:
           ANSIBLE_BASE_URL: "https://awx.example.com/"

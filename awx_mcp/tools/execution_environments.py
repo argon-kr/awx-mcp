@@ -13,7 +13,7 @@ from ..utils import to_json
 
 @read_tool
 def list_execution_environments(
-    environment_name: str = None,
+    environment_name: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> str:
@@ -69,10 +69,10 @@ def get_execution_environment(ee_id: int) -> str:
 def create_execution_environment(
     name: str,
     image: str,
-    organization_id: int = None,
-    credential_id: int = None,
+    organization_id: int | None = None,
+    credential_id: int | None = None,
     description: str = "",
-    pull: str = None,
+    pull: str | None = None,
 ) -> str:
     """Create an AWX execution environment.
 
@@ -107,11 +107,11 @@ def create_execution_environment(
 @write_tool(idempotent=True)
 def update_execution_environment(
     ee_id: int,
-    name: str = None,
-    image: str = None,
-    credential_id: int = None,
-    description: str = None,
-    pull: str = None,
+    name: str | None = None,
+    image: str | None = None,
+    credential_id: int | None = None,
+    description: str | None = None,
+    pull: str | None = None,
 ) -> str:
     """Update an AWX execution environment.
 

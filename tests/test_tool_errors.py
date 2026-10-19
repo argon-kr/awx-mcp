@@ -94,7 +94,7 @@ def test_async_unexpected_error_propagates_unchanged():
 
 
 def test_return_value_and_metadata_are_preserved():
-    def tool(job_id: int, name: str = None) -> dict:
+    def tool(job_id: int, name: str | None = None) -> dict:
         """Look up a job."""
         return {"id": job_id, "name": name}
 

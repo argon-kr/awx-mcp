@@ -15,7 +15,7 @@ from ..utils import parse_json_str, to_json, validate_json_str
 
 @read_tool
 def list_job_templates(
-    template_name: str = None,
+    template_name: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> str:
@@ -137,20 +137,20 @@ def create_job_template(
 @write_tool(idempotent=True)
 def update_job_template(
     template_id: int,
-    name: str = None,
-    inventory_id: int = None,
-    project_id: int = None,
-    playbook: str = None,
-    description: str = None,
-    extra_vars: str = None,
-    job_type: str = None,
-    verbosity: int = None,
-    limit: str = None,
-    forks: int = None,
-    become_enabled: bool = None,
-    diff_mode: bool = None,
-    allow_simultaneous: bool = None,
-    timeout: int = None,
+    name: str | None = None,
+    inventory_id: int | None = None,
+    project_id: int | None = None,
+    playbook: str | None = None,
+    description: str | None = None,
+    extra_vars: str | None = None,
+    job_type: str | None = None,
+    verbosity: int | None = None,
+    limit: str | None = None,
+    forks: int | None = None,
+    become_enabled: bool | None = None,
+    diff_mode: bool | None = None,
+    allow_simultaneous: bool | None = None,
+    timeout: int | None = None,
 ) -> str:
     """Update an existing AWX job template.
 
@@ -242,15 +242,15 @@ def delete_job_template(template_id: int) -> str:
 @write_tool(destructive=True)
 def launch_job(
     template_id: int,
-    extra_vars: str = None,
-    inventory: int = None,
-    credential: int = None,
-    limit: str = None,
-    job_tags: str = None,
-    skip_tags: str = None,
-    verbosity: int = None,
-    scm_branch: str = None,
-    diff_mode: bool = None,
+    extra_vars: str | None = None,
+    inventory: int | None = None,
+    credential: int | None = None,
+    limit: str | None = None,
+    job_tags: str | None = None,
+    skip_tags: str | None = None,
+    verbosity: int | None = None,
+    scm_branch: str | None = None,
+    diff_mode: bool | None = None,
 ) -> str:
     """Launch a single AWX playbook execution from a job template.
 

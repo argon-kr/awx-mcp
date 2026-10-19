@@ -13,8 +13,8 @@ from ..utils import to_json, validate_json_str
 
 @read_tool
 def list_groups(
-    inventory_id: int = None,
-    group_name: str = None,
+    inventory_id: int | None = None,
+    group_name: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> str:
@@ -102,7 +102,10 @@ def create_group(
 
 @write_tool(idempotent=True)
 def update_group(
-    group_id: int, name: str = None, variables: str = None, description: str = None
+    group_id: int,
+    name: str | None = None,
+    variables: str | None = None,
+    description: str | None = None,
 ) -> str:
     """Update AWX group metadata and variables.
 

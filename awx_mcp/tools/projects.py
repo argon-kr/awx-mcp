@@ -21,7 +21,7 @@ from ..utils import to_json
 
 @read_tool
 def list_projects(
-    project_name: str = None,
+    project_name: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> str:
@@ -78,9 +78,9 @@ def create_project(
     name: str,
     organization_id: int,
     scm_type: str,
-    scm_url: str = None,
-    scm_branch: str = None,
-    credential_id: int = None,
+    scm_url: str | None = None,
+    scm_branch: str | None = None,
+    credential_id: int | None = None,
     description: str = "",
 ) -> str:
     """Create an AWX project for playbook content.
@@ -127,11 +127,11 @@ def create_project(
 @write_tool(idempotent=True)
 def update_project(
     project_id: int,
-    name: str = None,
-    scm_type: str = None,
-    scm_url: str = None,
-    scm_branch: str = None,
-    description: str = None,
+    name: str | None = None,
+    scm_type: str | None = None,
+    scm_url: str | None = None,
+    scm_branch: str | None = None,
+    description: str | None = None,
 ) -> str:
     """Update AWX project metadata and SCM settings.
 

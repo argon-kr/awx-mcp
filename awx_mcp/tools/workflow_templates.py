@@ -19,7 +19,7 @@ from ..utils import parse_json_str, to_json, validate_json_str
 
 @read_tool
 def list_workflow_templates(
-    template_name: str = None,
+    template_name: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> str:
@@ -80,9 +80,9 @@ def create_workflow_template(
     extra_vars: str = "{}",
     survey_enabled: bool = False,
     allow_simultaneous: bool = False,
-    inventory: int = None,
-    limit: str = None,
-    scm_branch: str = None,
+    inventory: int | None = None,
+    limit: str | None = None,
+    scm_branch: str | None = None,
 ) -> str:
     """Create an AWX workflow template for multi-step orchestration.
 
@@ -126,14 +126,14 @@ def create_workflow_template(
 @write_tool(idempotent=True)
 def update_workflow_template(
     template_id: int,
-    name: str = None,
-    description: str = None,
-    extra_vars: str = None,
-    survey_enabled: bool = None,
-    allow_simultaneous: bool = None,
-    inventory: int = None,
-    limit: str = None,
-    scm_branch: str = None,
+    name: str | None = None,
+    description: str | None = None,
+    extra_vars: str | None = None,
+    survey_enabled: bool | None = None,
+    allow_simultaneous: bool | None = None,
+    inventory: int | None = None,
+    limit: str | None = None,
+    scm_branch: str | None = None,
 ) -> str:
     """Update an existing AWX workflow template.
 
@@ -203,10 +203,10 @@ def delete_workflow_template(template_id: int) -> str:
 @write_tool(destructive=True)
 def launch_workflow(
     template_id: int,
-    extra_vars: str = None,
-    inventory: int = None,
-    limit: str = None,
-    scm_branch: str = None,
+    extra_vars: str | None = None,
+    inventory: int | None = None,
+    limit: str | None = None,
+    scm_branch: str | None = None,
 ) -> str:
     """Launch an AWX multi-step workflow from a workflow template.
 
@@ -391,7 +391,7 @@ def get_workflow_template_node(node_id: int) -> str:
 def create_workflow_template_node(
     workflow_template_id: int,
     unified_job_template_id: int,
-    identifier: str = None,
+    identifier: str | None = None,
     all_parents_must_converge: bool = False,
     extra_data: str = "{}",
 ) -> str:

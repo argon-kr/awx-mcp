@@ -19,7 +19,7 @@ from ..utils import to_json
 
 @read_tool
 def list_jobs(
-    status: str = None,
+    status: str | None = None,
     limit: int = 20,
     offset: int = 0,
     order_by: str = "-created",

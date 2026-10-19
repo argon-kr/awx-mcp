@@ -13,7 +13,7 @@ from ..utils import to_json
 
 @read_tool
 def list_organizations(
-    organization_name: str = None,
+    organization_name: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> str:
@@ -72,7 +72,7 @@ def create_organization(
     name: str,
     description: str = "",
     max_hosts: int = 0,
-    default_environment: int = None,
+    default_environment: int | None = None,
 ) -> str:
     """Create an AWX organization.
 
@@ -98,10 +98,10 @@ def create_organization(
 @write_tool(idempotent=True)
 def update_organization(
     organization_id: int,
-    name: str = None,
-    description: str = None,
-    max_hosts: int = None,
-    default_environment: int = None,
+    name: str | None = None,
+    description: str | None = None,
+    max_hosts: int | None = None,
+    default_environment: int | None = None,
 ) -> str:
     """Update an AWX organization.
 

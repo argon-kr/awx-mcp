@@ -13,7 +13,7 @@ from ..utils import to_json
 
 @read_tool
 def list_notification_templates(
-    template_name: str = None,
+    template_name: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> str:

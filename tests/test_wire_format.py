@@ -51,3 +51,30 @@ def test_call_result_has_text_only_no_structured_duplicate(fake_client):
 
 def test_to_json_is_compact_and_unicode_preserving():
     assert to_json({"a": [1, 2], "b": "ü"}) == '{"a":[1,2],"b":"ü"}'
+
+
+def _null_default_type_mismatches(schema: dict) -> list[str]:
+    bad = []
+    for name, prop in schema.get("properties", {}).items():
+        if "default" in prop and prop["default"] is None:
+            types = {prop.get("type")} | {
+                alt.get("type") for alt in prop.get("anyOf", [])
+            }
+            if "null" not in types:
+                bad.append(name)
+    return bad
+
+
+def test_every_null_default_parameter_admits_null_in_its_schema():
+    """`x: str = None` renders as {"type": "string", "default": null}.
+
+    Strict clients reject a default outside the declared type; every optional
+    parameter must be spelled `x: str | None = None` (ruff RUF013).
+    """
+    tools = anyio.run(server.mcp.list_tools)
+    offenders = {
+        t.name: bad
+        for t in tools
+        if (bad := _null_default_type_mismatches(t.input_schema))
+    }
+    assert offenders == {}

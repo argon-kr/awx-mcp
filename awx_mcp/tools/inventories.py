@@ -19,7 +19,7 @@ from ..utils import to_json, validate_json_str
 
 @read_tool
 def list_inventories(
-    inventory_name: str = None,
+    inventory_name: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> str:
@@ -103,9 +103,9 @@ def create_inventory(
 @write_tool(idempotent=True)
 def update_inventory(
     inventory_id: int,
-    name: str = None,
-    description: str = None,
-    variables: str = None,
+    name: str | None = None,
+    description: str | None = None,
+    variables: str | None = None,
 ) -> str:
     """Update AWX inventory metadata.
 
@@ -162,8 +162,8 @@ def delete_inventory(inventory_id: int) -> str:
 
 @read_tool
 def list_inventory_sources(
-    inventory_id: int = None,
-    source_name: str = None,
+    inventory_id: int | None = None,
+    source_name: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> str:
@@ -226,7 +226,7 @@ def create_inventory_source(
     source: str,
     source_path: str = "",
     source_vars: str = "{}",
-    credential_id: int = None,
+    credential_id: int | None = None,
     overwrite: bool = False,
     overwrite_vars: bool = False,
     update_on_launch: bool = False,
@@ -276,15 +276,15 @@ def create_inventory_source(
 @write_tool(idempotent=True)
 def update_inventory_source(
     source_id: int,
-    name: str = None,
-    source: str = None,
-    source_path: str = None,
-    source_vars: str = None,
-    credential_id: int = None,
-    overwrite: bool = None,
-    overwrite_vars: bool = None,
-    update_on_launch: bool = None,
-    description: str = None,
+    name: str | None = None,
+    source: str | None = None,
+    source_path: str | None = None,
+    source_vars: str | None = None,
+    credential_id: int | None = None,
+    overwrite: bool | None = None,
+    overwrite_vars: bool | None = None,
+    update_on_launch: bool | None = None,
+    description: str | None = None,
 ) -> str:
     """Update an existing AWX inventory source.
 
