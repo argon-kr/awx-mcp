@@ -82,6 +82,10 @@ async def _drive(read, write) -> tuple[int, str]:
         text = ""
         if result.content:
             text = getattr(result.content[0], "text", "") or ""
+        if result.is_error:
+            raise RuntimeError(f"{PROBE_TOOL} failed: {text or 'empty error response'}")
+        if not text.strip():
+            raise RuntimeError(f"{PROBE_TOOL} returned no text")
         return len(tools.tools), text.strip()
 
 
