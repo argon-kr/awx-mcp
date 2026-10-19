@@ -5,6 +5,7 @@
 import argparse
 import os
 import sys
+from importlib.metadata import version
 
 
 def main():
@@ -12,7 +13,7 @@ def main():
 
     Three mutually exclusive running modes, selected by CLI flags:
 
-    * (no flags)         local stdio server using this process's own AWX
+    * ``--stdio`` (default) local stdio server using this process's own AWX
                          credentials (``ANSIBLE_TOKEN`` / USERNAME+PASSWORD).
     * ``--remote <URL>`` client proxy: no local server; relays stdio to a
                          central awx-mcp, injecting the caller's ``ANSIBLE_TOKEN``
@@ -28,6 +29,12 @@ def main():
     parser = argparse.ArgumentParser(
         prog="awx-mcp",
         description="MCP server for Ansible Tower/AWX.",
+    )
+    parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {version('awx-mcp')}"
+    )
+    parser.add_argument(
+        "--stdio", action="store_true", help="Run the local stdio server (default)."
     )
     parser.add_argument(
         "--remote",
@@ -64,8 +71,10 @@ def main():
     remote_url = args.remote or os.environ.get("AWX_MCP_REMOTE_URL")
 
     # --- Mutual exclusivity -------------------------------------------------
-    if args.remote and args.serve:
-        parser.error("--remote and --serve are mutually exclusive.")
+    if sum((args.stdio, args.serve, bool(remote_url))) > 1:
+        parser.error(
+            "--stdio, --serve and --remote/AWX_MCP_REMOTE_URL are mutually exclusive."
+        )
     if remote_url and (args.serve or args.host or args.port is not None or args.sse):
         parser.error(
             "--remote runs no server; it cannot be combined with "

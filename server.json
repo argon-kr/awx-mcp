@@ -1,0 +1,60 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.lycorp-jp/awx-mcp",
+  "title": "AWX MCP Server",
+  "description": "Manage AWX and Ansible Tower automation through MCP with per-user authentication and read-only mode.",
+  "version": "24.6.1",
+  "repository": {
+    "url": "https://github.com/lycorp-jp/awx-mcp",
+    "source": "github"
+  },
+  "websiteUrl": "https://github.com/lycorp-jp/awx-mcp",
+  "packages": [
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/lycorp-jp/awx-mcp:24.6.1",
+      "runtimeHint": "docker",
+      "transport": { "type": "stdio" },
+      "runtimeArguments": [
+        { "type": "named", "name": "-i" },
+        { "type": "named", "name": "--rm" },
+        { "type": "named", "name": "--no-healthcheck" }
+      ],
+      "packageArguments": [
+        { "type": "named", "name": "--stdio" }
+      ],
+      "environmentVariables": [
+        {
+          "name": "ANSIBLE_BASE_URL",
+          "description": "AWX base URL, for example https://awx.example.com/",
+          "isRequired": true,
+          "format": "string"
+        },
+        {
+          "name": "ANSIBLE_TOKEN",
+          "description": "AWX personal access token. AWX permissions apply to every tool call.",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "ANSIBLE_SSL_VERIFY",
+          "description": "Verify the AWX server TLS certificate.",
+          "default": "true",
+          "format": "boolean"
+        },
+        {
+          "name": "ANSIBLE_CA_BUNDLE",
+          "description": "CA bundle path inside the container. Mount the file when using a private CA.",
+          "format": "filepath"
+        },
+        {
+          "name": "AWX_MCP_READ_ONLY",
+          "description": "Expose only read-only tools.",
+          "default": "false",
+          "format": "boolean"
+        }
+      ]
+    }
+  ]
+}
