@@ -66,3 +66,12 @@ def test_smoke_accepts_successful_probe():
     count, text = drive_probe('return \'{"version":"24.6.1"}\'')
     assert count == 1
     assert text == '{"version":"24.6.1"}'
+
+
+def test_unknown_mode_lists_exercise_as_supported_choice(monkeypatch):
+    monkeypatch.setenv("ANSIBLE_BASE_URL", "http://127.0.0.1:1/")
+    monkeypatch.setenv("ANSIBLE_TOKEN", "fixture-token")
+    monkeypatch.setattr(sys, "argv", ["mcp_smoke_test.py", "unknown"])
+
+    with pytest.raises(SystemExit, match="Choose:.*exercise"):
+        anyio.run(smoke.main)
