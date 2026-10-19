@@ -53,6 +53,12 @@
           "description": "Expose only read-only tools.",
           "default": "false",
           "format": "boolean"
+        },
+        {
+          "name": "AWX_MCP_TOOLSETS",
+          "description": "Comma-separated tool modules, for example jobs,job_templates. Use all for every toolset.",
+          "default": "all",
+          "format": "string"
         }
       ]
     }

@@ -3,8 +3,8 @@
 """Unit / subprocess tests for the client proxy (``awx-mcp --remote``).
 
 The load-bearing invariant is that proxy mode never imports ``awx_mcp.server``
-(proxy users have no ``ANSIBLE_BASE_URL``, so a server import would crash at
-startup). That is verified in a fresh subprocess because the main test process
+(proxy users have no local AWX configuration or tool catalog). That is verified
+in a fresh subprocess because the main test process
 imports ``server`` via other modules. The full stdio<->central<->AWX relay is
 covered by ``test_integration_passthrough.py``.
 """
@@ -20,6 +20,8 @@ os.environ.setdefault("ANSIBLE_BASE_URL", "https://test.example.com/")
 os.environ.setdefault("ANSIBLE_TOKEN", "fake-test-token")
 
 import pytest  # noqa: E402
+
+from tests.conftest import set_test_settings
 
 
 def _subprocess(script: str, env_extra: dict[str, str]):
@@ -58,6 +60,8 @@ def test_proxy_local_logging_crash_safety():
         import json, sys, time
         import awx_mcp.proxy  # noqa: F401
         from awx_mcp.usage import record_proxy_tool_call
+        from awx_mcp.settings import Settings, configure_settings
+        configure_settings(Settings.from_env(overrides={"transport": "proxy"}))
         record_proxy_tool_call(
             "list_inventories", time.monotonic(), True, None,
             user="argon", awx_host="central.example.com",
@@ -96,7 +100,7 @@ def test_relay_tool_call_exception_records_failure(monkeypatch, tmp_path):
     import awx_mcp.usage as usage
 
     log_file = tmp_path / "u.jsonl"
-    monkeypatch.setattr(usage, "USAGE_LOG_FILE", str(log_file))
+    set_test_settings(monkeypatch, usage_log_file=str(log_file))
     monkeypatch.setattr(usage, "_usage_logger", None)
 
     class _BoomUpstream:
@@ -136,7 +140,7 @@ def test_relay_tool_call_iserror_records_masked_detail(monkeypatch, tmp_path):
     import awx_mcp.usage as usage
 
     log_file = tmp_path / "u.jsonl"
-    monkeypatch.setattr(usage, "USAGE_LOG_FILE", str(log_file))
+    set_test_settings(monkeypatch, usage_log_file=str(log_file))
     monkeypatch.setattr(usage, "_usage_logger", None)
 
     class _ErrUpstream:
@@ -191,7 +195,7 @@ def test_relay_tool_call_relays_input_required_and_forwards_state(
     import awx_mcp.usage as usage
 
     log_file = tmp_path / "u.jsonl"
-    monkeypatch.setattr(usage, "USAGE_LOG_FILE", str(log_file))
+    set_test_settings(monkeypatch, usage_log_file=str(log_file))
     monkeypatch.setattr(usage, "_usage_logger", None)
 
     seen: dict = {}

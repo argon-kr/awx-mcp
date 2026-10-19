@@ -2,14 +2,13 @@
 
 """Shared fixtures for the awx-mcp test suite.
 
-The credential-management env flag is read at import time by ``awx_mcp.server``,
-so this fixture sets it via ``os.environ`` BEFORE awx_mcp is imported by any
-test module that needs the gated tools.
+Tests install an isolated, explicit startup configuration before each case.
+Subprocess tests supply their own environment and startup settings.
 """
 
 import os
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from unittest.mock import MagicMock
 
 import pytest
@@ -106,3 +105,34 @@ def fake_ctx_password_accept():
 from mcp.server.mcpserver.exceptions import ToolError  # noqa: E402
 
 TOOL_ERRORS = (ValueError, ToolError)
+
+
+from awx_mcp import access_log, client, server, usage  # noqa: E402
+from awx_mcp import settings as settings_mod  # noqa: E402
+
+_TEST_SETTINGS = settings_mod.Settings(
+    base_url="https://test.example.com/", token="fake-test-token"
+)
+_TEST_TOOL_NAMES = server.register_tools(server.mcp, _TEST_SETTINGS)
+
+
+def set_test_settings(monkeypatch, **overrides):
+    """Replace immutable startup settings for a test, restoring on teardown."""
+    value = replace(settings_mod.get_settings(), **overrides)
+    monkeypatch.setattr(settings_mod, "_settings", value)
+    return value
+
+
+@pytest.fixture(autouse=True)
+def _isolated_startup_settings():
+    settings_mod.configure_settings(_TEST_SETTINGS)
+    client.configure()
+    usage.configure()
+    access_log.configure()
+    yield
+    settings_mod.configure_settings(_TEST_SETTINGS)
+    usage.configure()
+    access_log.configure()
+    names = [tool.name for tool in server.mcp._tool_manager.list_tools()]
+    if names != _TEST_TOOL_NAMES:
+        server.register_tools(server.mcp, _TEST_SETTINGS)

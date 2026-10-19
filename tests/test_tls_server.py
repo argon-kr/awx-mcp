@@ -2,8 +2,8 @@
 
 """Tests for inbound TLS resolution (``server.resolve_tls_kwargs``).
 
-TLS env vars are read at ``awx_mcp.server`` import time, so each case runs in a
-fresh subprocess. The probe imports server, calls ``resolve_tls_kwargs`` with a
+TLS env vars are parsed explicitly in a fresh subprocess for each case. The probe
+imports server, calls ``resolve_tls_kwargs`` with a
 transport (from ``PROBE_TRANSPORT``), and prints the result as JSON; a
 ``ValueError`` exits non-zero with the message on stderr.
 """
@@ -19,9 +19,10 @@ _PROBE = textwrap.dedent(
     """
     import json, os, sys
     from awx_mcp import server
+    from awx_mcp.settings import Settings
     try:
         transport = os.environ.get("PROBE_TRANSPORT", "streamable-http")
-        r = server.resolve_tls_kwargs(transport)
+        r = server.resolve_tls_kwargs(transport, Settings.from_env())
         sys.stdout.write(json.dumps(r))
     except ValueError as e:
         sys.stderr.write("VALUEERROR:" + str(e))

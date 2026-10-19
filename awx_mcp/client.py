@@ -9,7 +9,6 @@ token caching, and pagination handling.
 
 import atexit
 import json
-import os
 import re
 import threading
 import time
@@ -27,17 +26,8 @@ from .exceptions import (
     AnsibleHTTPError,
     AnsibleValidationError,
 )
-from .server import (
-    ANSIBLE_BASE_URL,
-    ANSIBLE_PASSWORD,
-    ANSIBLE_SSL_VERIFY,
-    ANSIBLE_TOKEN,
-    ANSIBLE_USERNAME,
-    AUTH_MODE,
-    READ_ONLY,
-    get_request_header,
-    logger,
-)
+from .server import get_request_header, logger
+from .settings import get_settings
 from .utils import mask_secrets
 
 
@@ -67,7 +57,23 @@ def _default_port(scheme: str) -> int | None:
 
 
 DEFAULT_CONNECT_TIMEOUT = 10
-DEFAULT_READ_TIMEOUT = int(os.environ.get("AWX_HTTP_TIMEOUT_READ", "90"))
+
+
+def __getattr__(name: str) -> Any:
+    aliases = {
+        "ANSIBLE_BASE_URL": "base_url",
+        "ANSIBLE_USERNAME": "username",
+        "ANSIBLE_PASSWORD": "password",
+        "ANSIBLE_TOKEN": "token",
+        "ANSIBLE_SSL_VERIFY": "outbound_verify",
+        "AUTH_MODE": "auth_mode",
+        "READ_ONLY": "read_only",
+        "DEFAULT_READ_TIMEOUT": "http_timeout_read",
+    }
+    if name in aliases:
+        return getattr(get_settings(), aliases[name])
+    raise AttributeError(name)
+
 
 _RETRY_STATUS = frozenset({429, 502, 503, 504})
 _RETRY_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
@@ -107,7 +113,7 @@ def _get_shared_session() -> requests.Session:
     session = getattr(_thread_local, "session", None)
     if session is None:
         session = requests.Session()
-        session.verify = ANSIBLE_SSL_VERIFY
+        session.verify = get_settings().outbound_verify
         adapter = _build_retry_adapter()
         session.mount("http://", adapter)
         session.mount("https://", adapter)
@@ -134,7 +140,7 @@ class AnsibleClient:
         self.token: str | None = token
         self._token_id: int | None = None
         self.session = requests.Session()
-        self.session.verify = ANSIBLE_SSL_VERIFY
+        self.session.verify = get_settings().outbound_verify
         adapter = _build_retry_adapter()
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
@@ -212,7 +218,7 @@ class AnsibleClient:
         token_data = {
             "description": "MCP Server Token",
             "application": None,
-            "scope": "read" if READ_ONLY else "write",
+            "scope": "read" if get_settings().read_only else "write",
         }
 
         token_response = self.session.post(
@@ -310,11 +316,12 @@ class AnsibleClient:
                 headers=headers,
                 params=params,
                 json=data,
-                timeout=(DEFAULT_CONNECT_TIMEOUT, DEFAULT_READ_TIMEOUT),
+                timeout=(DEFAULT_CONNECT_TIMEOUT, get_settings().http_timeout_read),
             )
         except requests.exceptions.Timeout as e:
             raise AnsibleHTTPError(
-                f"Ansible API timeout after {DEFAULT_READ_TIMEOUT}s: {method} {url}",
+                f"Ansible API timeout after {get_settings().http_timeout_read}s: "
+                f"{method} {url}",
             ) from e
         except requests.exceptions.RequestException as e:
             raise AnsibleHTTPError(
@@ -389,6 +396,19 @@ _atexit_revoke_targets: list[
 ] = []  # (base_url, token, token_id)
 
 
+def configure() -> None:
+    """Discard cached authentication and this thread's pool at startup."""
+    global _cached_token, _cached_token_id, _cached_token_verified_at, _thread_local
+    with _token_cache_lock:
+        _cached_token = None
+        _cached_token_id = None
+        _cached_token_verified_at = None
+    session = getattr(_thread_local, "session", None)
+    if session is not None:
+        session.close()
+    _thread_local = threading.local()
+
+
 def _revoke_token_at_shutdown(base_url: str, token: str | None, token_id: int) -> None:
     """Best-effort token revocation called by atexit.
 
@@ -412,7 +432,7 @@ def _revoke_token_at_shutdown(base_url: str, token: str | None, token_id: int) -
             "DELETE",
             delete_url,
             headers={"Authorization": f"Bearer {token}"},
-            verify=ANSIBLE_SSL_VERIFY,
+            verify=get_settings().outbound_verify,
             timeout=5,
         )
         logger.debug("Token %s revoke status: %s", token_id, resp.status_code)
@@ -435,11 +455,11 @@ def _client_on_shared_session(token: str | None = None) -> AnsibleClient:
     The client does not own the shared session, so ``__exit__`` leaves it open
     for the next call on this thread.
     """
-    # ANSIBLE_BASE_URL is validated non-empty when awx_mcp.server is imported.
+    # ANSIBLE_BASE_URL is validated by the CLI before serving requests.
     client = AnsibleClient(
-        base_url=cast(str, ANSIBLE_BASE_URL),
-        username=ANSIBLE_USERNAME,
-        password=ANSIBLE_PASSWORD,
+        base_url=cast(str, get_settings().base_url),
+        username=get_settings().username,
+        password=get_settings().password,
         token=token,
     )
     client.session = _get_shared_session()
@@ -472,7 +492,7 @@ def get_ansible_client():
     # token. No caching, minting, or atexit revocation — the token belongs to
     # the user, not this server, so sharing/revoking it across requests would
     # be wrong.
-    if AUTH_MODE == "passthrough":
+    if get_settings().auth_mode == "passthrough":
         token = get_request_token()
         if not token:
             raise AnsibleAuthError(
@@ -480,14 +500,14 @@ def get_ansible_client():
                 "'Authorization: Bearer <token>' (or the X-AWX-Token header).",
                 status_code=401,
             )
-        client = AnsibleClient(base_url=ANSIBLE_BASE_URL, token=token)
+        client = AnsibleClient(base_url=cast(str, get_settings().base_url), token=token)
         with client:
             yield client
         return
 
     # If we have a static token from env, always use it
-    if ANSIBLE_TOKEN:
-        with _client_on_shared_session(ANSIBLE_TOKEN) as client:
+    if get_settings().token:
+        with _client_on_shared_session(get_settings().token) as client:
             yield client
         return
 
@@ -629,7 +649,7 @@ def handle_pagination(
     pages_fetched = 0
     count: int | None = None
 
-    budget_seconds = DEFAULT_READ_TIMEOUT * 2
+    budget_seconds = get_settings().http_timeout_read * 2
     started_at = time.monotonic()
 
     while next_url:

@@ -158,6 +158,39 @@ docker run -i --rm -e ANSIBLE_BASE_URL -e ANSIBLE_TOKEN -e AWX_MCP_READ_ONLY awx
 
 中央サーバーは静的な AWX 認証情報を無視します。TLS でトークンを保護し、ネットワークアクセスを制限してください。`--host` と `--port` は環境変数より優先されます。[デプロイ例、直接 HTTP 接続、replica 設定](docs/deployment.ja.md) と [TLS およびログ](docs/security.ja.md) を参照してください。
 
+### Toolset の選択と読み取り専用モード
+
+`--toolsets jobs,job_templates` または `AWX_MCP_TOOLSETS` で公開するツールを選択します。CLI オプションが環境変数より優先され、既定値は `all` です。不明な名前や空の選択は起動時に拒否されます。`--serve` では全呼び出し元に適用されます。`--remote` では一部の toolset の選択を拒否するため、中央サーバー側で設定してください。
+
+`--read-only` と `AWX_MCP_READ_ONLY=true` のいずれかを設定すると読み取り専用になります。ローカルと中央サーバーでは読み取りツールだけを公開します。プロキシは `X-AWX-Read-Only: true` を転送し、そのセッションを制限します。既定では AWX RBAC が許可する書き込みを含めて 141 ツールを公開します。
+
+```bash
+awx-mcp --toolsets jobs,job_templates --read-only
+```
+
+| Toolset | 既定のツール数 | 認証情報 opt-in 適用時 |
+|---------|---------------|------------------------|
+| `ad_hoc` | 3 | 3 |
+| `credentials` | 5 | 7 |
+| `execution_environments` | 5 | 5 |
+| `groups` | 7 | 7 |
+| `hosts` | 5 | 5 |
+| `instances` | 4 | 4 |
+| `inventories` | 14 | 14 |
+| `job_templates` | 13 | 13 |
+| `jobs` | 7 | 7 |
+| `labels` | 2 | 2 |
+| `notifications` | 3 | 3 |
+| `organizations` | 5 | 5 |
+| `projects` | 11 | 11 |
+| `rbac` | 7 | 7 |
+| `schedules` | 5 | 5 |
+| `system` | 9 | 9 |
+| `teams` | 5 | 5 |
+| `users` | 3 | 5 |
+| `workflow_jobs` | 11 | 11 |
+| `workflow_templates` | 17 | 17 |
+
 ---
 
 ## 設定
@@ -200,6 +233,7 @@ AWX UI で事前に作成したトークンを使います。AWX の方針によ
 | `ANSIBLE_LOG_LEVEL` | `INFO` | ログレベル（`DEBUG`、`INFO`、`WARNING`、`ERROR`） |
 | `AWX_HTTP_TIMEOUT_READ` | `90` | AWX API リクエスト 1 件あたりの読み取りタイムアウト（秒）。低速な AWX で大きな `get_job_stdout` / `get_job_events` 呼び出しがタイムアウトする場合に増やします。 |
 | `AWX_MCP_ENABLE_CREDENTIAL_MANAGEMENT` | `false` | Form mode elicitation で機密データを収集する 4 つの認証情報/ユーザー書き込みツールを有効化するか。[Credential Management (opt-in)](#credential-management-opt-in) を参照。 |
+| `AWX_MCP_TOOLSETS` | `all` | ツールモジュール名をカンマで区切ります。`--toolsets` が優先されます。`--serve` ではサーバー全体に適用し、`--remote` では一部の toolset の選択を拒否します。 |
 | `AWX_MCP_READ_ONLY` | `false` | 読み取り専用モード。`--serve` の中央サーバーでは、`true` にするとすべての書き込み/破壊的ツールがグローバルに登録解除されます(ユーザー側で再有効化はできません)。`--remote` プロキシモードでは、`true` はそのユーザーのセッションのみを制限します(プロキシが `X-AWX-Read-Only` を送信し、サーバーはその呼び出し元の書き込み呼び出しを拒否します)。あくまで自己制限としての機能です - [デプロイモード](docs/deployment.ja.md) を参照。 |
 | `AWX_MCP_REMOTE_URL` | 未設定 | プロキシモード用の中央サーバー URL(`--remote <URL>` と同等。フラグの方が優先されます)。 |
 | `AWX_MCP_HOST` | `127.0.0.1` | `--serve` サーバーのバインドホスト。`--host` で上書きされます。 |

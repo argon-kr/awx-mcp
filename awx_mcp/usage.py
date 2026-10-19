@@ -34,12 +34,28 @@ from logging.handlers import TimedRotatingFileHandler
 from typing import Any
 from urllib.parse import urlparse
 
+from .settings import get_settings
 from .utils import mask_secrets, package_version, wrap_tool_call
 
 logger = logging.getLogger("ansible-mcp.usage")
 
-# --- Configuration (read at import; path unset => instrumentation off) --------
-USAGE_LOG_FILE = os.environ.get("AWX_MCP_USAGE_LOG_FILE")
+
+def __getattr__(name: str) -> Any:
+    if name == "USAGE_LOG_FILE":
+        return get_settings().usage_log_file
+    raise AttributeError(name)
+
+
+def configure() -> None:
+    """Close startup-owned sinks and reset attribution before serving again."""
+    global _usage_logger, _user_cache
+    if _usage_logger is not None:
+        for handler in _usage_logger.handlers:
+            handler.close()
+        _usage_logger.handlers.clear()
+    _usage_logger = None
+    _user_cache = None
+    _user_cache_by_token.clear()
 
 
 def stdout_jsonl_enabled() -> bool:
@@ -50,7 +66,7 @@ def stdout_jsonl_enabled() -> bool:
     (``kubectl logs`` / fluentd). In stdio mode stdout carries the MCP protocol
     and in proxy mode it carries the relayed stdio stream — never write there.
     """
-    return os.environ.get("AWX_MCP_EFFECTIVE_TRANSPORT") in (
+    return get_settings().transport in (
         "sse",
         "streamable-http",
     )
@@ -58,10 +74,7 @@ def stdout_jsonl_enabled() -> bool:
 
 def log_backup_count() -> int:
     """Number of rotated backups to keep (env ``AWX_MCP_LOG_BACKUP_COUNT``, 7)."""
-    try:
-        return int(os.environ.get("AWX_MCP_LOG_BACKUP_COUNT", "7"))
-    except (TypeError, ValueError):
-        return 7
+    return get_settings().log_backup_count
 
 
 def make_timed_rotating_handler(path: str) -> TimedRotatingFileHandler:
@@ -114,13 +127,11 @@ def _lookup_me_username(token: str | None = None) -> str:
     try:
         # Imported lazily to avoid an import cycle (client -> server -> usage).
         from .client import AnsibleClient, get_ansible_client
-        from .server import ANSIBLE_BASE_URL
 
         if token is not None:
-            # ANSIBLE_BASE_URL is validated non-None at server import in every
-            # mode; assert narrows str | None -> str for the type checker.
-            assert ANSIBLE_BASE_URL is not None
-            with AnsibleClient(base_url=ANSIBLE_BASE_URL, token=token) as client:
+            base_url = get_settings().base_url
+            assert base_url is not None
+            with AnsibleClient(base_url=base_url, token=token) as client:
                 me = client.request("GET", "/api/v2/me/")
         else:
             with get_ansible_client() as client:
@@ -161,11 +172,7 @@ def resolve_user_identifier() -> str:
     """
     global _user_cache
 
-    # AUTH_MODE is imported lazily: server.py imports this module before it
-    # defines AUTH_MODE, so a module-top import would be a cycle.
-    from .server import AUTH_MODE
-
-    if AUTH_MODE == "passthrough":
+    if get_settings().auth_mode == "passthrough":
         from .client import get_request_token
 
         token = get_request_token()
@@ -210,7 +217,7 @@ def _server_version() -> str:
 
 def _awx_host() -> str:
     """Return the host portion of ``ANSIBLE_BASE_URL`` (or ``"unknown"``)."""
-    base = os.environ.get("ANSIBLE_BASE_URL")
+    base = get_settings().base_url
     if not base:
         return "unknown"
     try:
@@ -224,11 +231,11 @@ def _awx_host() -> str:
 def _effective_transport() -> str:
     """The transport label for usage records.
 
-    Derived from an internal env indicator set by the CLI (``main()``), NOT from
-    the removed ``AWX_MCP_TRANSPORT``: ``stdio`` (local), ``streamable-http`` or
-    ``sse`` (``--serve``). The proxy passes ``transport="proxy"`` explicitly.
+    Derived from the explicit CLI startup settings: ``stdio`` (local),
+    ``streamable-http`` or ``sse`` (``--serve``). The proxy passes
+    ``transport="proxy"`` explicitly.
     """
-    return os.environ.get("AWX_MCP_EFFECTIVE_TRANSPORT", "stdio")
+    return get_settings().transport
 
 
 # Key names whose values are always redacted. Matched on whole ``_``-separated
@@ -343,8 +350,8 @@ def build_payload(
     recording an internal call from inside that resolution to avoid recursion,
     and by the proxy (which has no AWX access to resolve a username). ``transport``
     and ``awx_host`` may likewise be supplied directly; the proxy passes
-    ``transport="proxy"`` and the central host because the env-derived defaults
-    (``AWX_MCP_EFFECTIVE_TRANSPORT`` / ``ANSIBLE_BASE_URL``) do not apply there.
+    ``transport="proxy"`` and the central host because the local AWX base URL
+    does not apply there.
     """
     payload: dict[str, Any] = {
         "@timestamp": datetime.now(timezone.utc).isoformat(),
@@ -355,7 +362,7 @@ def build_payload(
         "server_version": _server_version(),
         "success": success,
         "latency_ms": latency_ms,
-        "auth_mode": os.environ.get("AWX_MCP_AUTH_MODE", "static"),
+        "auth_mode": get_settings().auth_mode,
         "transport": transport if transport is not None else _effective_transport(),
         "awx_host": awx_host if awx_host is not None else _awx_host(),
     }
@@ -380,7 +387,7 @@ _usage_logger_lock = threading.Lock()
 
 
 def _is_enabled() -> bool:
-    return bool(USAGE_LOG_FILE) or stdout_jsonl_enabled()
+    return bool(get_settings().usage_log_file) or stdout_jsonl_enabled()
 
 
 def _get_usage_logger() -> logging.Logger | None:
@@ -407,8 +414,9 @@ def _get_usage_logger() -> logging.Logger | None:
         lg.setLevel(logging.INFO)
         lg.propagate = False
         raw = logging.Formatter("%(message)s")
-        if USAGE_LOG_FILE:
-            handler = make_timed_rotating_handler(USAGE_LOG_FILE)
+        path = get_settings().usage_log_file
+        if path:
+            handler = make_timed_rotating_handler(path)
             handler.setFormatter(raw)
             lg.addHandler(handler)
         if stdout_jsonl_enabled():

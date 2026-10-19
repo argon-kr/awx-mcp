@@ -21,13 +21,13 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import sys
 import threading
 import time
 from datetime import datetime, timezone
 from typing import Any
 
+from .settings import get_settings
 from .usage import make_timed_rotating_handler, stdout_jsonl_enabled
 
 logger = logging.getLogger("ansible-mcp.access")
@@ -37,8 +37,8 @@ _access_logger_lock = threading.Lock()
 
 
 def _log_file() -> str | None:
-    """The access-log path (read per call so tests can toggle the env)."""
-    return os.environ.get("AWX_MCP_ACCESS_LOG_FILE") or None
+    """The access-log path from the startup configuration."""
+    return get_settings().access_log_file
 
 
 def access_log_enabled() -> bool:
@@ -86,8 +86,8 @@ def _get_access_logger() -> logging.Logger | None:
     return _access_logger
 
 
-def _reset_for_tests() -> None:
-    """Drop the cached logger so tests can point the sink at a new file."""
+def configure() -> None:
+    """Close the previous startup configuration's log sinks."""
     global _access_logger
     with _access_logger_lock:
         if _access_logger is not None:
@@ -95,6 +95,10 @@ def _reset_for_tests() -> None:
                 handler.close()
             _access_logger.handlers.clear()
         _access_logger = None
+
+
+# Compatibility for the existing test/embedding cleanup API.
+_reset_for_tests = configure
 
 
 def _header(scope: dict[str, Any], name: bytes) -> str | None:

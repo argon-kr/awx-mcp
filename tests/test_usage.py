@@ -2,16 +2,12 @@
 
 """Tests for the file-based usage instrumentation (awx_mcp.usage).
 
-``awx_mcp.usage`` reads ``AWX_MCP_USAGE_LOG_FILE`` at import time, so tests set
-the env var and ``importlib.reload`` the module to pick it up, mirroring the
-env-at-import pattern already used by the server tests. The server diagnostic
-log file is covered via a fresh subprocess (server.py also reads its env at
-import time).
+Tests install explicit Settings and reset usage sinks for each startup.
+Diagnostic log startup is also covered in isolated subprocesses.
 """
 
 from __future__ import annotations
 
-import importlib
 import json
 import os
 import subprocess
@@ -24,6 +20,7 @@ os.environ.setdefault("ANSIBLE_TOKEN", "fake-test-token")
 import pytest  # noqa: E402
 
 import awx_mcp.usage as usage  # noqa: E402
+from tests.conftest import set_test_settings
 
 REQUIRED_FIELDS = {
     "@timestamp",
@@ -39,14 +36,18 @@ REQUIRED_FIELDS = {
 }
 
 
-def _reload_usage(monkeypatch, **env: str | None):
-    """Reload awx_mcp.usage with the given env vars applied."""
+def _configure_usage(monkeypatch, **env: str | None):
+    """Parse the supplied environment changes and configure usage explicitly."""
     for key, value in env.items():
         if value is None:
             monkeypatch.delenv(key, raising=False)
         else:
             monkeypatch.setenv(key, value)
-    importlib.reload(usage)
+    from awx_mcp import settings as settings_mod
+    from awx_mcp.settings import Settings
+
+    monkeypatch.setattr(settings_mod, "_settings", Settings.from_env())
+    usage.configure()
     return usage
 
 
@@ -60,7 +61,7 @@ def _read_lines(path):
 
 
 def test_disabled_is_passthrough_and_creates_no_file(monkeypatch, tmp_path):
-    mod = _reload_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=None)
+    mod = _configure_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=None)
 
     assert mod._is_enabled() is False
     assert mod._get_usage_logger() is None
@@ -87,7 +88,7 @@ def test_enabled_appends_one_valid_json_line(monkeypatch, tmp_path):
     log_file = tmp_path / "usage.jsonl"
     # Pin ANSIBLE_BASE_URL so awx_host is deterministic regardless of the
     # ambient value (CI sets its own ANSIBLE_BASE_URL for the job).
-    mod = _reload_usage(
+    mod = _configure_usage(
         monkeypatch,
         AWX_MCP_USAGE_LOG_FILE=str(log_file),
         ANSIBLE_BASE_URL="https://test.example.com/",
@@ -115,7 +116,7 @@ def test_enabled_appends_one_valid_json_line(monkeypatch, tmp_path):
 
 def test_each_call_appends_a_line(monkeypatch, tmp_path):
     log_file = tmp_path / "usage.jsonl"
-    mod = _reload_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
+    mod = _configure_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
     monkeypatch.setattr(mod, "resolve_user_identifier", lambda: "tester")
 
     @mod.instrument_tool
@@ -136,7 +137,7 @@ def test_each_call_appends_a_line(monkeypatch, tmp_path):
 
 def test_tool_params_are_logged(monkeypatch, tmp_path):
     log_file = tmp_path / "usage.jsonl"
-    mod = _reload_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
+    mod = _configure_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
     monkeypatch.setattr(mod, "resolve_user_identifier", lambda: "tester")
 
     @mod.instrument_tool
@@ -151,7 +152,7 @@ def test_tool_params_are_logged(monkeypatch, tmp_path):
 
 def test_no_params_omits_field(monkeypatch, tmp_path):
     log_file = tmp_path / "usage.jsonl"
-    mod = _reload_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
+    mod = _configure_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
     monkeypatch.setattr(mod, "resolve_user_identifier", lambda: "tester")
 
     @mod.instrument_tool
@@ -166,7 +167,7 @@ def test_no_params_omits_field(monkeypatch, tmp_path):
 
 def test_sensitive_params_are_redacted(monkeypatch, tmp_path):
     log_file = tmp_path / "usage.jsonl"
-    mod = _reload_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
+    mod = _configure_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
     monkeypatch.setattr(mod, "resolve_user_identifier", lambda: "tester")
 
     @mod.instrument_tool
@@ -192,7 +193,7 @@ def test_sensitive_params_are_redacted(monkeypatch, tmp_path):
 
 def test_freeform_var_blob_is_redacted(monkeypatch, tmp_path):
     log_file = tmp_path / "usage.jsonl"
-    mod = _reload_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
+    mod = _configure_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
     monkeypatch.setattr(mod, "resolve_user_identifier", lambda: "tester")
 
     @mod.instrument_tool
@@ -209,7 +210,7 @@ def test_freeform_var_blob_is_redacted(monkeypatch, tmp_path):
 
 def test_nested_secret_keys_are_redacted(monkeypatch, tmp_path):
     log_file = tmp_path / "usage.jsonl"
-    mod = _reload_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
+    mod = _configure_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
     monkeypatch.setattr(mod, "resolve_user_identifier", lambda: "tester")
 
     @mod.instrument_tool
@@ -239,7 +240,7 @@ def test_nested_secret_keys_are_redacted(monkeypatch, tmp_path):
 
 def test_failed_call_records_error_and_propagates(monkeypatch, tmp_path):
     log_file = tmp_path / "usage.jsonl"
-    mod = _reload_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
+    mod = _configure_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
     monkeypatch.setattr(mod, "resolve_user_identifier", lambda: "tester")
 
     @mod.instrument_tool
@@ -257,7 +258,7 @@ def test_failed_call_records_error_and_propagates(monkeypatch, tmp_path):
 
 def test_error_message_is_secret_masked(monkeypatch, tmp_path):
     log_file = tmp_path / "usage.jsonl"
-    mod = _reload_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
+    mod = _configure_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
     monkeypatch.setattr(mod, "resolve_user_identifier", lambda: "tester")
 
     @mod.instrument_tool
@@ -279,7 +280,7 @@ def test_error_message_is_secret_masked(monkeypatch, tmp_path):
 
 def test_logging_failure_does_not_break_tool(monkeypatch, tmp_path):
     log_file = tmp_path / "usage.jsonl"
-    mod = _reload_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
+    mod = _configure_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
 
     def _boom(**kwargs):
         raise RuntimeError("payload build exploded")
@@ -297,7 +298,7 @@ def test_logging_failure_does_not_break_tool(monkeypatch, tmp_path):
 
 def test_logging_failure_preserves_original_exception(monkeypatch, tmp_path):
     log_file = tmp_path / "usage.jsonl"
-    mod = _reload_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
+    mod = _configure_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
 
     def _boom(**kwargs):
         raise RuntimeError("instrumentation error, not the tool error")
@@ -322,7 +323,7 @@ def test_async_tool_is_instrumented(monkeypatch, tmp_path):
     import asyncio
 
     log_file = tmp_path / "usage.jsonl"
-    mod = _reload_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
+    mod = _configure_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
     monkeypatch.setattr(mod, "resolve_user_identifier", lambda: "tester")
 
     @mod.instrument_tool
@@ -343,7 +344,7 @@ def test_async_tool_is_instrumented(monkeypatch, tmp_path):
 
 def test_user_resolution_failure_falls_back_to_unknown(monkeypatch, tmp_path):
     log_file = tmp_path / "usage.jsonl"
-    mod = _reload_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
+    mod = _configure_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
 
     def _raise():
         raise RuntimeError("me lookup failed")
@@ -379,7 +380,7 @@ def test_user_resolution_failure_falls_back_to_unknown(monkeypatch, tmp_path):
 
 def test_me_lookup_recorded_as_internal_api(monkeypatch, tmp_path):
     log_file = tmp_path / "usage.jsonl"
-    mod = _reload_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
+    mod = _configure_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
 
     class _FakeClient:
         def __enter__(self):
@@ -421,7 +422,7 @@ def test_me_lookup_recorded_as_internal_api(monkeypatch, tmp_path):
 
 def test_usage_logging_writes_nothing_to_stdout(monkeypatch, tmp_path, capsys):
     log_file = tmp_path / "usage.jsonl"
-    mod = _reload_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
+    mod = _configure_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
     monkeypatch.setattr(mod, "resolve_user_identifier", lambda: "tester")
 
     @mod.instrument_tool
@@ -440,18 +441,18 @@ def test_usage_logging_writes_nothing_to_stdout(monkeypatch, tmp_path, capsys):
 
 
 def test_backup_count_defaults_and_override(monkeypatch):
-    mod = _reload_usage(monkeypatch, AWX_MCP_LOG_BACKUP_COUNT=None)
+    mod = _configure_usage(monkeypatch, AWX_MCP_LOG_BACKUP_COUNT=None)
     assert mod.log_backup_count() == 7
 
-    monkeypatch.setenv("AWX_MCP_LOG_BACKUP_COUNT", "3")
+    _configure_usage(monkeypatch, AWX_MCP_LOG_BACKUP_COUNT="3")
     assert mod.log_backup_count() == 3
 
-    monkeypatch.setenv("AWX_MCP_LOG_BACKUP_COUNT", "not-an-int")
+    _configure_usage(monkeypatch, AWX_MCP_LOG_BACKUP_COUNT="not-an-int")
     assert mod.log_backup_count() == 7
 
 
 def test_handler_uses_midnight_utc_rotation(monkeypatch, tmp_path):
-    mod = _reload_usage(monkeypatch, AWX_MCP_LOG_BACKUP_COUNT="5")
+    mod = _configure_usage(monkeypatch, AWX_MCP_LOG_BACKUP_COUNT="5")
     handler = mod.make_timed_rotating_handler(str(tmp_path / "x.log"))
     try:
         assert handler.when == "MIDNIGHT"
@@ -462,7 +463,7 @@ def test_handler_uses_midnight_utc_rotation(monkeypatch, tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# server diagnostic log file (subprocess: server.py reads env at import)
+# server diagnostic log file (explicit startup in a subprocess)
 # ---------------------------------------------------------------------------
 
 
@@ -476,6 +477,8 @@ def _run_server_log_subprocess(tmp_path, log_format: str):
         os.environ["AWX_MCP_SERVER_LOG_FILE"] = {str(log_file)!r}
         os.environ["AWX_MCP_SERVER_LOG_FORMAT"] = {log_format!r}
         from awx_mcp import server
+        from awx_mcp.settings import Settings
+        server.configure(Settings.from_env())
         server.logger.warning("diagnostic-probe-message")
         sys.stdout.write("STDOUT_SENTINEL")
         """
@@ -530,8 +533,10 @@ def test_server_log_file_plain_format(tmp_path):
 
 
 def test_passthrough_per_token_user_cache(monkeypatch, tmp_path):
-    mod = _reload_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(tmp_path / "u.jsonl"))
-    monkeypatch.setattr("awx_mcp.server.AUTH_MODE", "passthrough")
+    mod = _configure_usage(
+        monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(tmp_path / "u.jsonl")
+    )
+    set_test_settings(monkeypatch, auth_mode="passthrough")
 
     current = {"t": "tokA"}
     monkeypatch.setattr("awx_mcp.client.get_request_token", lambda: current["t"])
@@ -556,8 +561,10 @@ def test_passthrough_per_token_user_cache(monkeypatch, tmp_path):
 
 
 def test_passthrough_no_token_is_unknown(monkeypatch, tmp_path):
-    mod = _reload_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(tmp_path / "u.jsonl"))
-    monkeypatch.setattr("awx_mcp.server.AUTH_MODE", "passthrough")
+    mod = _configure_usage(
+        monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(tmp_path / "u.jsonl")
+    )
+    set_test_settings(monkeypatch, auth_mode="passthrough")
     monkeypatch.setattr("awx_mcp.client.get_request_token", lambda: None)
     monkeypatch.setattr(
         mod, "_lookup_me_username", lambda token=None: pytest.fail("no lookup")
@@ -566,8 +573,10 @@ def test_passthrough_no_token_is_unknown(monkeypatch, tmp_path):
 
 
 def test_passthrough_token_cache_bounded(monkeypatch, tmp_path):
-    mod = _reload_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(tmp_path / "u.jsonl"))
-    monkeypatch.setattr("awx_mcp.server.AUTH_MODE", "passthrough")
+    mod = _configure_usage(
+        monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(tmp_path / "u.jsonl")
+    )
+    set_test_settings(monkeypatch, auth_mode="passthrough")
     monkeypatch.setattr(mod, "_MAX_TOKEN_CACHE", 2)
     monkeypatch.setattr(mod, "_lookup_me_username", lambda token=None: f"u-{token}")
 
@@ -581,12 +590,12 @@ def test_passthrough_token_cache_bounded(monkeypatch, tmp_path):
 
 def test_passthrough_log_line_has_no_raw_token(monkeypatch, tmp_path):
     log_file = tmp_path / "u.jsonl"
-    mod = _reload_usage(
+    mod = _configure_usage(
         monkeypatch,
         AWX_MCP_USAGE_LOG_FILE=str(log_file),
         AWX_MCP_AUTH_MODE="passthrough",
     )
-    monkeypatch.setattr("awx_mcp.server.AUTH_MODE", "passthrough")
+    set_test_settings(monkeypatch, auth_mode="passthrough")
     secret = "super-secret-token-XYZ"
     monkeypatch.setattr("awx_mcp.client.get_request_token", lambda: secret)
     monkeypatch.setattr(mod, "_lookup_me_username", lambda token=None: "alice")
@@ -614,7 +623,7 @@ def test_passthrough_log_line_has_no_raw_token(monkeypatch, tmp_path):
 
 def test_record_proxy_tool_call_writes_proxy_record(monkeypatch, tmp_path):
     log_file = tmp_path / "u.jsonl"
-    mod = _reload_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
+    mod = _configure_usage(monkeypatch, AWX_MCP_USAGE_LOG_FILE=str(log_file))
 
     import time as _time
 
@@ -645,6 +654,8 @@ def test_server_log_file_unset_creates_no_file(tmp_path):
         os.environ["ANSIBLE_TOKEN"] = "dummy"
         os.environ.pop("AWX_MCP_SERVER_LOG_FILE", None)
         from awx_mcp import server
+        from awx_mcp.settings import Settings
+        server.configure(Settings.from_env())
         server.logger.warning("diagnostic-probe-message")
         assert not os.path.exists({str(marker)!r})
         sys.stdout.write("STDOUT_SENTINEL")

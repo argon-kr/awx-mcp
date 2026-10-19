@@ -2,8 +2,8 @@
 
 """Tests for AWX_MCP_ENABLE_CREDENTIAL_MANAGEMENT gating.
 
-These tests run the package import in a fresh subprocess per case because
-``awx_mcp.server`` reads the env flag at import time.
+These tests apply environment settings explicitly and register tools in a
+fresh subprocess, exercising the startup API without inherited process state.
 """
 
 from __future__ import annotations
@@ -44,7 +44,8 @@ def _list_registered_tools(env_value: str | None) -> list[str]:
         os.environ['ANSIBLE_TOKEN'] = 'dummy'
         from awx_mcp import server
         from awx_mcp import tools  # noqa: F401  (registers tool modules)
-        names = list(server.mcp._tool_manager._tools.keys())
+        from awx_mcp.settings import Settings
+        names = server.register_tools(server.mcp, Settings.from_env())
         sys.stdout.write(json.dumps(names))
         """
     ).strip()

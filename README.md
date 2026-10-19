@@ -158,6 +158,39 @@ Pass values through your environment. Do not use `-t` for MCP stdio. GHCR and ta
 
 The central server ignores static AWX credentials. Protect caller tokens with TLS and restrict network access. `--host` and `--port` override their environment variables. See [deployment examples, direct HTTP, and replica setup](docs/deployment.md) and [TLS and logs](docs/security.md).
 
+### Select toolsets and read-only access
+
+Limit the advertised tools with `--toolsets jobs,job_templates` or `AWX_MCP_TOOLSETS`. The CLI flag overrides the environment. The default is `all`. Unknown names and empty selections fail at startup. In `--serve` mode the selection applies to every caller. In `--remote` mode subsets are rejected, so configure them on the central server instead.
+
+`--read-only` and `AWX_MCP_READ_ONLY=true` are combined with OR. Either enables the restriction. Local and central servers expose only read tools. A proxy forwards `X-AWX-Read-Only: true` to restrict its session. The default still exposes 141 tools, including writes permitted by AWX RBAC.
+
+```bash
+awx-mcp --toolsets jobs,job_templates --read-only
+```
+
+| Toolset | Default tools | With credential opt-in |
+|---------|---------------|------------------------|
+| `ad_hoc` | 3 | 3 |
+| `credentials` | 5 | 7 |
+| `execution_environments` | 5 | 5 |
+| `groups` | 7 | 7 |
+| `hosts` | 5 | 5 |
+| `instances` | 4 | 4 |
+| `inventories` | 14 | 14 |
+| `job_templates` | 13 | 13 |
+| `jobs` | 7 | 7 |
+| `labels` | 2 | 2 |
+| `notifications` | 3 | 3 |
+| `organizations` | 5 | 5 |
+| `projects` | 11 | 11 |
+| `rbac` | 7 | 7 |
+| `schedules` | 5 | 5 |
+| `system` | 9 | 9 |
+| `teams` | 5 | 5 |
+| `users` | 3 | 5 |
+| `workflow_jobs` | 11 | 11 |
+| `workflow_templates` | 17 | 17 |
+
 ---
 
 ## Configuration
@@ -200,6 +233,7 @@ The server automatically creates and caches an OAuth2 token on your behalf.
 | `ANSIBLE_LOG_LEVEL` | `INFO` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 | `AWX_HTTP_TIMEOUT_READ` | `90` | Read timeout in seconds for each AWX API request. Raise it if large `get_job_stdout` / `get_job_events` calls time out on a slow AWX. |
 | `AWX_MCP_ENABLE_CREDENTIAL_MANAGEMENT` | `false` | Opt-in for the 4 credential/user write tools that collect sensitive data via Form-mode elicitation. See [Credential Management](#credential-management-opt-in). |
+| `AWX_MCP_TOOLSETS` | `all` | Comma-separated tool modules. `--toolsets` overrides this value. Server-global with `--serve`. Subsets are rejected with `--remote`. |
 | `AWX_MCP_READ_ONLY` | `false` | Read-only mode. On the `--serve` central server, `true` unregisters all write/destructive tools globally (users cannot re-enable). In `--remote` proxy mode, `true` restricts only that user's session (the proxy sends `X-AWX-Read-Only`; the server rejects that caller's write calls). Advisory self-limit - see [Deployment modes](docs/deployment.md). |
 | `AWX_MCP_REMOTE_URL` | unset | Central server URL for proxy mode (equivalent to `--remote <URL>`; the flag takes precedence). |
 | `AWX_MCP_HOST` | `127.0.0.1` | Bind host for the `--serve` server. Overridden by `--host`. |

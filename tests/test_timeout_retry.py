@@ -64,17 +64,16 @@ def test_request_exception_wraps_to_AnsibleHTTPError(mock_session_cls):
 
 
 def test_env_override_AWX_HTTP_TIMEOUT_READ(monkeypatch):
-    monkeypatch.setenv("AWX_HTTP_TIMEOUT_READ", "5")
-    # reload to pick up env
-    import importlib
+    from awx_mcp import settings as settings_mod
+    from awx_mcp.settings import Settings
 
-    import awx_mcp.client as client_mod
-
-    importlib.reload(client_mod)
-    assert client_mod.DEFAULT_READ_TIMEOUT == 5
-    # restore
-    monkeypatch.setenv("AWX_HTTP_TIMEOUT_READ", "90")
-    importlib.reload(client_mod)
+    settings = Settings.from_env({"AWX_HTTP_TIMEOUT_READ": "5"})
+    monkeypatch.setattr(settings_mod, "_settings", settings)
+    with patch("awx_mcp.client.requests.Session") as session_cls:
+        session_cls.return_value.request.return_value = _resp()
+        client = AnsibleClient(base_url="https://test.example.com/", token="t")
+        client.request("GET", "/api/v2/items/")
+        assert session_cls.return_value.request.call_args.kwargs["timeout"] == (10, 5)
 
 
 def test_pagination_zero_limit_returns_empty():

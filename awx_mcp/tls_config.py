@@ -4,9 +4,8 @@
 
 This module holds configuration that both the full server (``server.py``) and
 the lightweight client proxy (``proxy.py``) need, without either importing the
-other. It imports only the standard library, so proxy mode can resolve outbound
-TLS settings without importing ``server`` (which requires ``ANSIBLE_BASE_URL``
-and would crash a proxy user who legitimately has none).
+other. It imports only the standard library and Settings, so proxy mode can
+resolve outbound TLS settings without loading the local server or tool catalog.
 """
 
 from __future__ import annotations
@@ -14,11 +13,13 @@ from __future__ import annotations
 import logging
 import os
 
-from .utils import truthy
+from .settings import Settings, get_settings
 
 
-def resolve_ssl_verify(logger: logging.Logger, target_url: str | None) -> bool | str:
-    """Resolve the requests/httpx ``verify=`` value from the environment.
+def resolve_ssl_verify(
+    logger: logging.Logger, target_url: str | None, settings: Settings | None = None
+) -> bool | str:
+    """Resolve the requests/httpx ``verify=`` value from startup settings.
 
     Reads ``ANSIBLE_SSL_VERIFY`` (default on) and ``ANSIBLE_CA_BUNDLE``:
 
@@ -28,8 +29,9 @@ def resolve_ssl_verify(logger: logging.Logger, target_url: str | None) -> bool |
     * ``<path>`` -> custom CA bundle (must exist, else ``ValueError``).
     * ``True``   -> system trust store (default).
     """
-    enabled = truthy(os.environ.get("ANSIBLE_SSL_VERIFY", "true"))
-    ca_bundle = os.environ.get("ANSIBLE_CA_BUNDLE") or None
+    settings = settings or get_settings()
+    enabled = settings.ssl_verify
+    ca_bundle = settings.ca_bundle
 
     if not enabled:
         logger.warning(

@@ -83,7 +83,8 @@ def _run_subprocess_tool_listing(env_value: str | None) -> list[str]:
         {flag_setup}
         from awx_mcp import server
         from awx_mcp import tools  # noqa: F401
-        names = list(server.mcp._tool_manager._tools.keys())
+        from awx_mcp.settings import Settings
+        names = server.register_tools(server.mcp, Settings.from_env())
         sys.stdout.write(json.dumps(names))
         """
     ).strip()

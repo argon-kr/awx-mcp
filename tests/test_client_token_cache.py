@@ -20,6 +20,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from tests.conftest import set_test_settings
+
 os.environ.setdefault("ANSIBLE_BASE_URL", "https://test.example.com/")
 os.environ.setdefault("ANSIBLE_TOKEN", "fake-test-token")
 
@@ -97,7 +99,7 @@ def fake_client_class(monkeypatch):
     FakeClient.instances = []
     FakeClient.ping_fails = False
     monkeypatch.setattr(client_mod, "AnsibleClient", FakeClient)
-    monkeypatch.setattr(client_mod, "ANSIBLE_BASE_URL", "https://awx.example.com")
+    set_test_settings(monkeypatch, base_url="https://awx.example.com")
     monkeypatch.setattr(client_mod, "_cached_token", None)
     monkeypatch.setattr(client_mod, "_cached_token_id", None)
     monkeypatch.setattr(client_mod, "_cached_token_verified_at", None)
@@ -110,9 +112,9 @@ def fake_client_class(monkeypatch):
 def test_get_ansible_client_static_token_uses_env_token_without_minting(
     fake_client_class, monkeypatch
 ):
-    monkeypatch.setattr(client_mod, "ANSIBLE_TOKEN", "env-static-token")
-    monkeypatch.setattr(client_mod, "ANSIBLE_USERNAME", "u")
-    monkeypatch.setattr(client_mod, "ANSIBLE_PASSWORD", "p")
+    set_test_settings(monkeypatch, token="env-static-token")
+    set_test_settings(monkeypatch, username="u")
+    set_test_settings(monkeypatch, password="p")
 
     with client_mod.get_ansible_client() as client:
         assert client.token == "env-static-token"
@@ -130,9 +132,9 @@ def test_get_ansible_client_static_token_uses_env_token_without_minting(
 def test_get_ansible_client_mints_then_reuses_cached_token(
     fake_client_class, monkeypatch
 ):
-    monkeypatch.setattr(client_mod, "ANSIBLE_TOKEN", None)
-    monkeypatch.setattr(client_mod, "ANSIBLE_USERNAME", "u")
-    monkeypatch.setattr(client_mod, "ANSIBLE_PASSWORD", "p")
+    set_test_settings(monkeypatch, token=None)
+    set_test_settings(monkeypatch, username="u")
+    set_test_settings(monkeypatch, password="p")
 
     # First call: no cached token -> mint via get_token().
     with client_mod.get_ansible_client() as first:
@@ -152,9 +154,9 @@ def test_get_ansible_client_cached_token_does_ping_preflight(
 ):
     """A cached token not verified recently is validated with a /api/v2/ping/
     GET before yielding."""
-    monkeypatch.setattr(client_mod, "ANSIBLE_TOKEN", None)
-    monkeypatch.setattr(client_mod, "ANSIBLE_USERNAME", "u")
-    monkeypatch.setattr(client_mod, "ANSIBLE_PASSWORD", "p")
+    set_test_settings(monkeypatch, token=None)
+    set_test_settings(monkeypatch, username="u")
+    set_test_settings(monkeypatch, password="p")
     monkeypatch.setattr(client_mod, "_cached_token", "pre-cached-token")
 
     with client_mod.get_ansible_client() as client:
@@ -167,9 +169,9 @@ def test_get_ansible_client_cached_token_does_ping_preflight(
 def test_get_ansible_client_skips_preflight_within_ttl(fake_client_class, monkeypatch):
     """After a successful preflight (or a fresh mint) the next calls within
     the TTL reuse the token without another ping round trip."""
-    monkeypatch.setattr(client_mod, "ANSIBLE_TOKEN", None)
-    monkeypatch.setattr(client_mod, "ANSIBLE_USERNAME", "u")
-    monkeypatch.setattr(client_mod, "ANSIBLE_PASSWORD", "p")
+    set_test_settings(monkeypatch, token=None)
+    set_test_settings(monkeypatch, username="u")
+    set_test_settings(monkeypatch, password="p")
     monkeypatch.setattr(client_mod, "_cached_token", "pre-cached-token")
 
     with client_mod.get_ansible_client() as first:
@@ -182,9 +184,9 @@ def test_get_ansible_client_skips_preflight_within_ttl(fake_client_class, monkey
 
 
 def test_get_ansible_client_preflights_again_after_ttl(fake_client_class, monkeypatch):
-    monkeypatch.setattr(client_mod, "ANSIBLE_TOKEN", None)
-    monkeypatch.setattr(client_mod, "ANSIBLE_USERNAME", "u")
-    monkeypatch.setattr(client_mod, "ANSIBLE_PASSWORD", "p")
+    set_test_settings(monkeypatch, token=None)
+    set_test_settings(monkeypatch, username="u")
+    set_test_settings(monkeypatch, password="p")
     monkeypatch.setattr(client_mod, "_cached_token", "pre-cached-token")
     monkeypatch.setattr(
         client_mod,
@@ -203,9 +205,9 @@ def test_get_ansible_client_refreshes_when_cached_token_invalid(
 ):
     """Cached token fails its ping preflight -> cache invalidated and a fresh
     token minted for the yielded client."""
-    monkeypatch.setattr(client_mod, "ANSIBLE_TOKEN", None)
-    monkeypatch.setattr(client_mod, "ANSIBLE_USERNAME", "u")
-    monkeypatch.setattr(client_mod, "ANSIBLE_PASSWORD", "p")
+    set_test_settings(monkeypatch, token=None)
+    set_test_settings(monkeypatch, username="u")
+    set_test_settings(monkeypatch, password="p")
     monkeypatch.setattr(client_mod, "_cached_token", "stale-token")
     fake_client_class.ping_fails = True
 
@@ -290,7 +292,7 @@ def test_get_token_uses_csrf_from_html_when_no_cookie(
 def test_get_token_scope_is_write_by_default(
     mock_session_cls, preserve_atexit_targets, monkeypatch
 ):
-    monkeypatch.setattr(client_mod, "READ_ONLY", False)
+    set_test_settings(monkeypatch, read_only=False)
     session = _mock_login_session(mock_session_cls)
     token_resp = MagicMock(status_code=201)
     token_resp.json.return_value = {"token": "t", "id": 2}
@@ -309,7 +311,7 @@ def test_get_token_scope_is_write_by_default(
 def test_get_token_scope_is_read_when_read_only(
     mock_session_cls, preserve_atexit_targets, monkeypatch
 ):
-    monkeypatch.setattr(client_mod, "READ_ONLY", True)
+    set_test_settings(monkeypatch, read_only=True)
     session = _mock_login_session(mock_session_cls)
     token_resp = MagicMock(status_code=201)
     token_resp.json.return_value = {"token": "t", "id": 3}

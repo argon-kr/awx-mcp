@@ -23,6 +23,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from requests.adapters import HTTPAdapter
 
+from tests.conftest import set_test_settings
+
 os.environ.setdefault("ANSIBLE_BASE_URL", "https://test.example.com/")
 os.environ.setdefault("ANSIBLE_TOKEN", "fake-test-token")
 
@@ -74,9 +76,9 @@ def reset_thread_local_session():
 @pytest.fixture
 def static_token_env(monkeypatch):
     """Force the static-token path of get_ansible_client() (no network)."""
-    monkeypatch.setattr(client_mod, "AUTH_MODE", "static")
-    monkeypatch.setattr(client_mod, "ANSIBLE_TOKEN", "static-tok")
-    monkeypatch.setattr(client_mod, "ANSIBLE_BASE_URL", "https://awx.example.com")
+    set_test_settings(monkeypatch, auth_mode="static")
+    set_test_settings(monkeypatch, token="static-tok")
+    set_test_settings(monkeypatch, base_url="https://awx.example.com")
     return None
 
 

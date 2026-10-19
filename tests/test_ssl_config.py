@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for TLS/HTTPS configuration resolved at ``awx_mcp.server`` import time.
+"""Tests for TLS/HTTPS configuration resolved at explicit server startup.
 
-``server`` reads the TLS env vars at import, so each case runs in a fresh
-subprocess. The subprocess prints the resolved ``ANSIBLE_SSL_VERIFY`` /
+Each case parses startup settings in a fresh subprocess. The subprocess prints
+the resolved ``ANSIBLE_SSL_VERIFY`` /
 ``ANSIBLE_BASE_URL`` as JSON on stdout; warnings land on stderr (logging).
 """
 
@@ -18,6 +18,8 @@ _PROBE = textwrap.dedent(
     """
     import json, sys
     from awx_mcp import server
+    from awx_mcp.settings import Settings
+    server.configure(Settings.from_env())
     sys.stdout.write(json.dumps({
         "verify": server.ANSIBLE_SSL_VERIFY,
         "verify_type": type(server.ANSIBLE_SSL_VERIFY).__name__,

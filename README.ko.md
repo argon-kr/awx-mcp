@@ -158,6 +158,39 @@ docker run -i --rm -e ANSIBLE_BASE_URL -e ANSIBLE_TOKEN -e AWX_MCP_READ_ONLY awx
 
 중앙 서버는 정적으로 설정된 AWX 자격 증명을 무시합니다. 호출자 토큰을 TLS로 보호하고 네트워크 접근을 제한하세요. `--host`와 `--port`는 환경변수보다 우선합니다. [배포 예제, 직접 HTTP 연결, replica 구성](docs/deployment.ko.md)과 [TLS 및 로그](docs/security.ko.md)를 참고하세요.
 
+### Toolset 선택과 읽기 전용 모드
+
+`--toolsets jobs,job_templates` 또는 `AWX_MCP_TOOLSETS`로 노출할 도구를 선택합니다. CLI 옵션이 환경변수보다 우선하며 기본값은 `all`입니다. 알 수 없는 이름이나 빈 목록을 지정하면 시작 단계에서 실패합니다. `--serve`에서는 모든 호출자에게 같은 선택을 적용합니다. `--remote`에서는 일부 toolset 선택을 거부하므로 중앙 서버에서 설정해야 합니다.
+
+`--read-only`와 `AWX_MCP_READ_ONLY=true` 중 하나라도 설정하면 읽기 전용 모드가 켜집니다. 로컬 서버와 중앙 서버에서는 읽기 도구만 노출합니다. 프록시는 `X-AWX-Read-Only: true`를 전달하여 해당 세션을 제한합니다. 기본 설정에서는 AWX RBAC가 허용하는 쓰기 작업을 포함해 141개 도구를 노출합니다.
+
+```bash
+awx-mcp --toolsets jobs,job_templates --read-only
+```
+
+| Toolset | 기본 도구 수 | 자격 증명 opt-in 적용 시 |
+|---------|---------------|------------------------|
+| `ad_hoc` | 3 | 3 |
+| `credentials` | 5 | 7 |
+| `execution_environments` | 5 | 5 |
+| `groups` | 7 | 7 |
+| `hosts` | 5 | 5 |
+| `instances` | 4 | 4 |
+| `inventories` | 14 | 14 |
+| `job_templates` | 13 | 13 |
+| `jobs` | 7 | 7 |
+| `labels` | 2 | 2 |
+| `notifications` | 3 | 3 |
+| `organizations` | 5 | 5 |
+| `projects` | 11 | 11 |
+| `rbac` | 7 | 7 |
+| `schedules` | 5 | 5 |
+| `system` | 9 | 9 |
+| `teams` | 5 | 5 |
+| `users` | 3 | 5 |
+| `workflow_jobs` | 11 | 11 |
+| `workflow_templates` | 17 | 17 |
+
 ---
 
 ## 설정
@@ -200,6 +233,7 @@ AWX UI에서 미리 생성한 토큰을 사용합니다. 토큰은 AWX 정책에
 | `ANSIBLE_LOG_LEVEL` | `INFO` | 로그 레벨 (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 | `AWX_HTTP_TIMEOUT_READ` | `90` | AWX API 요청 하나의 읽기 timeout(초). 느린 AWX 에서 큰 `get_job_stdout` / `get_job_events` 호출이 timeout 나면 늘린다. |
 | `AWX_MCP_ENABLE_CREDENTIAL_MANAGEMENT` | `false` | Form mode elicitation으로 민감 데이터를 수집하는 자격 증명/사용자 쓰기 도구 4개의 활성화 여부. [Credential Management (opt-in)](#credential-management-opt-in) 섹션 참조. |
+| `AWX_MCP_TOOLSETS` | `all` | 도구 모듈 이름을 쉼표로 구분합니다. `--toolsets`가 우선합니다. `--serve`에서는 서버 전체에 적용하며, `--remote`에서는 일부 toolset 선택을 거부합니다. |
 | `AWX_MCP_READ_ONLY` | `false` | 읽기 전용 모드. `--serve` 중앙 서버에서 `true`로 설정하면 모든 쓰기/파괴적 도구가 전역적으로 등록 해제됩니다(사용자가 다시 켤 수 없음). `--remote` 프록시 모드에서 `true`는 해당 사용자의 세션에만 적용됩니다(프록시가 `X-AWX-Read-Only`를 전송하고, 서버는 그 호출자의 쓰기 호출만 거부합니다). 어드바이저리 성격의 자기 제한이며 - [배포 모드](docs/deployment.ko.md) 참조. |
 | `AWX_MCP_REMOTE_URL` | 미설정 | 프록시 모드용 중앙 서버 URL(`--remote <URL>`과 동등하며, 플래그가 우선합니다). |
 | `AWX_MCP_HOST` | `127.0.0.1` | `--serve` 서버의 바인드 호스트. `--host`로 오버라이드됩니다. |

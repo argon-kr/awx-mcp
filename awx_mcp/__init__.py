@@ -3,8 +3,8 @@
 """AWX MCP Server - MCP server for Ansible Tower/AWX."""
 
 import argparse
-import os
 import sys
+from dataclasses import replace
 from importlib.metadata import version
 
 
@@ -23,8 +23,7 @@ def main():
                          caller's own token (passthrough).
 
     Heavy imports (``server``/``tools``/``proxy``) are deferred into the branch
-    that needs them: proxy mode must not import ``server`` (which requires
-    ``ANSIBLE_BASE_URL``, deliberately absent for proxy users).
+    that needs them. Proxy mode does not import server or local tool modules.
     """
     parser = argparse.ArgumentParser(
         prog="awx-mcp",
@@ -66,9 +65,38 @@ def main():
         default=None,
         help="Bind port for --serve (env: AWX_MCP_PORT, default 8000).",
     )
+    parser.add_argument(
+        "--toolsets",
+        metavar="NAMES",
+        default=None,
+        help=(
+            "Comma-separated toolsets, or all (env: AWX_MCP_TOOLSETS). "
+            "Server-global with --serve."
+        ),
+    )
+    parser.add_argument(
+        "--read-only",
+        action="store_true",
+        help="Restrict to read tools (also enabled by AWX_MCP_READ_ONLY).",
+    )
     args = parser.parse_args()
 
-    remote_url = args.remote or os.environ.get("AWX_MCP_REMOTE_URL")
+    from .settings import Settings, parse_toolsets
+
+    overrides = {}
+    for field in ("host", "port"):
+        if getattr(args, field) is not None:
+            overrides[field] = getattr(args, field)
+    if args.remote is not None:
+        overrides["remote_url"] = args.remote
+    try:
+        if args.toolsets is not None:
+            overrides["toolsets"] = parse_toolsets(args.toolsets)
+        settings = Settings.from_env(overrides=overrides)
+        settings = replace(settings, read_only=settings.read_only or args.read_only)
+    except ValueError as exc:
+        parser.error(str(exc))
+    remote_url = settings.remote_url
 
     # --- Mutual exclusivity -------------------------------------------------
     if sum((args.stdio, args.serve, bool(remote_url))) > 1:
@@ -88,31 +116,38 @@ def main():
         # Import only the proxy; never touch server (no ANSIBLE_BASE_URL here).
         from .proxy import run_proxy
 
-        run_proxy(remote_url)
+        settings = replace(settings, transport="proxy")
+        try:
+            settings.validate_startup()
+        except ValueError as exc:
+            parser.error(str(exc))
+        run_proxy(remote_url, settings)
         return
 
-    # --- Server modes: set the internal channels BEFORE importing server ----
-    if args.serve:
-        os.environ["AWX_MCP_AUTH_MODE"] = "passthrough"
-        transport = "sse" if args.sse else "streamable-http"
-    else:
-        # Guard: a stray AWX_MCP_AUTH_MODE env cannot turn on passthrough
-        # without --serve. Modes are flag-decided.
-        os.environ["AWX_MCP_AUTH_MODE"] = "static"
-        transport = "stdio"
-    os.environ["AWX_MCP_EFFECTIVE_TRANSPORT"] = transport
-
-    from . import tools  # noqa: F401 — registers all tools on import
+    # Mode and transport are explicit startup values, never environment IPC.
+    transport = ("sse" if args.sse else "streamable-http") if args.serve else "stdio"
+    settings = replace(
+        settings,
+        auth_mode="passthrough" if args.serve else "static",
+        transport=transport,
+    )
     from .access_log import AccessLogMiddleware
     from .server import (
-        MCP_HOST,
-        MCP_PORT,
-        STATELESS_HTTP,
+        configure,
         logger,
         mcp,
+        register_tools,
         resolve_tls_kwargs,
         warn_if_exposed,
     )
+
+    try:
+        settings.validate_startup()
+        register_tools(mcp, settings)
+        configure(settings)
+        tls_kwargs = resolve_tls_kwargs(transport, settings)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     if transport == "stdio":
         logger.info("Starting awx-mcp (local stdio server)")
@@ -124,10 +159,7 @@ def main():
     # validates the cert/key and raises on misconfiguration. mcp 2.x takes the
     # bind host per transport at the app factory instead of on the server object,
     # so the resolved values are threaded through explicitly.
-    host = args.host if args.host is not None else MCP_HOST
-    port = args.port if args.port is not None else MCP_PORT
-
-    tls_kwargs = resolve_tls_kwargs(transport)
+    host, port = settings.host, settings.port
     warn_if_exposed(host, tls_enabled=bool(tls_kwargs))
     logger.info(
         "Starting awx-mcp --serve (transport=%s, %s) on %s:%s",
@@ -147,7 +179,7 @@ def main():
     app = (
         mcp.sse_app(host=host)
         if transport == "sse"
-        else mcp.streamable_http_app(host=host, stateless_http=STATELESS_HTTP)
+        else mcp.streamable_http_app(host=host, stateless_http=settings.stateless_http)
     )
     app = AccessLogMiddleware(app)
     uvicorn.run(

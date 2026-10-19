@@ -20,6 +20,7 @@ import pytest  # noqa: E402
 import awx_mcp.client as client  # noqa: E402
 import awx_mcp.server as server  # noqa: E402
 from awx_mcp.exceptions import AnsibleAuthError  # noqa: E402
+from tests.conftest import set_test_settings
 
 # ---------------------------------------------------------------------------
 # get_request_token — Bearer parsing + X-AWX-Token fallback
@@ -106,7 +107,7 @@ def test_capture_request_headers_on_stdio_has_no_headers():
 
 
 def test_passthrough_uses_request_token_no_mint(monkeypatch):
-    monkeypatch.setattr(client, "AUTH_MODE", "passthrough")
+    set_test_settings(monkeypatch, auth_mode="passthrough")
     monkeypatch.setattr(client, "get_request_token", lambda: "caller-token-A")
     # Guard: minting must not happen in passthrough.
     monkeypatch.setattr(
@@ -120,7 +121,7 @@ def test_passthrough_uses_request_token_no_mint(monkeypatch):
 
 
 def test_passthrough_missing_token_raises_401(monkeypatch):
-    monkeypatch.setattr(client, "AUTH_MODE", "passthrough")
+    set_test_settings(monkeypatch, auth_mode="passthrough")
     monkeypatch.setattr(client, "get_request_token", lambda: None)
 
     with pytest.raises(AnsibleAuthError) as exc:
@@ -135,7 +136,7 @@ def test_passthrough_missing_token_raises_401(monkeypatch):
 
 
 def test_read_only_gate_rejects_write_when_header_set(monkeypatch):
-    monkeypatch.setattr(server, "AUTH_MODE", "passthrough")
+    set_test_settings(monkeypatch, auth_mode="passthrough")
     monkeypatch.setattr(server, "get_request_header", lambda name: "true")
 
     @server._read_only_gated
@@ -147,7 +148,7 @@ def test_read_only_gate_rejects_write_when_header_set(monkeypatch):
 
 
 def test_read_only_gate_allows_write_without_header(monkeypatch):
-    monkeypatch.setattr(server, "AUTH_MODE", "passthrough")
+    set_test_settings(monkeypatch, auth_mode="passthrough")
     monkeypatch.setattr(server, "get_request_header", lambda name: None)
 
     @server._read_only_gated
@@ -160,7 +161,7 @@ def test_read_only_gate_allows_write_without_header(monkeypatch):
 def test_read_only_gate_noop_in_static_mode(monkeypatch):
     # In static/local mode the header is irrelevant; the gate never fires even
     # if a stray header is present.
-    monkeypatch.setattr(server, "AUTH_MODE", "static")
+    set_test_settings(monkeypatch, auth_mode="static")
     monkeypatch.setattr(server, "get_request_header", lambda name: "true")
 
     @server._read_only_gated
@@ -173,7 +174,7 @@ def test_read_only_gate_noop_in_static_mode(monkeypatch):
 def test_read_only_gate_async(monkeypatch):
     import asyncio
 
-    monkeypatch.setattr(server, "AUTH_MODE", "passthrough")
+    set_test_settings(monkeypatch, auth_mode="passthrough")
     monkeypatch.setattr(server, "get_request_header", lambda name: "1")
 
     @server._read_only_gated
@@ -216,7 +217,9 @@ def test_cli_remote_invokes_proxy(monkeypatch):
     import awx_mcp.proxy as proxy
 
     called = {}
-    monkeypatch.setattr(proxy, "run_proxy", lambda url: called.setdefault("url", url))
+    monkeypatch.setattr(
+        proxy, "run_proxy", lambda url, settings: called.setdefault("url", url)
+    )
     monkeypatch.delenv("AWX_MCP_REMOTE_URL", raising=False)
     _run_main(monkeypatch, ["--remote", "https://central.example/mcp"])
     assert called["url"] == "https://central.example/mcp"
@@ -226,7 +229,9 @@ def test_cli_remote_url_from_env(monkeypatch):
     import awx_mcp.proxy as proxy
 
     called = {}
-    monkeypatch.setattr(proxy, "run_proxy", lambda url: called.setdefault("url", url))
+    monkeypatch.setattr(
+        proxy, "run_proxy", lambda url, settings: called.setdefault("url", url)
+    )
     monkeypatch.setenv("AWX_MCP_REMOTE_URL", "https://env-central/mcp")
     _run_main(monkeypatch, [])
     assert called["url"] == "https://env-central/mcp"

@@ -12,6 +12,7 @@ import logging
 import os
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
@@ -23,45 +24,10 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from .exceptions import AnsibleAPIError
+from .settings import Settings, configure_settings, get_settings
 from .tls_config import resolve_ssl_verify
 from .usage import instrument_tool, make_timed_rotating_handler
 from .utils import package_version, truthy, wrap_tool_call
-
-# AWX_MCP_TRANSPORT was removed: the running mode is now chosen by CLI flags
-# (`awx-mcp` = local stdio; `awx-mcp --serve [--sse]` = central network server).
-# Fail fast with a migration hint if the retired env var is still set.
-if os.environ.get("AWX_MCP_TRANSPORT"):
-    raise ValueError(
-        "AWX_MCP_TRANSPORT has been removed. Run the central server with "
-        "'awx-mcp --serve' (add '--sse' for the sse transport); plain 'awx-mcp' "
-        "runs the local stdio server."
-    )
-
-# Authentication mode — an internal channel set by the CLI in __init__.main(),
-# NOT a user-facing setting:
-#   static      -> this process authenticates to AWX with its own env
-#                  credentials (ANSIBLE_TOKEN / USERNAME+PASSWORD). Local mode.
-#   passthrough -> the process holds no credentials; each request carries the
-#                  caller's AWX token in the Authorization / X-AWX-Token header.
-#                  Central `--serve` mode.
-AUTH_MODE = os.environ.get("AWX_MCP_AUTH_MODE", "static").lower()
-if AUTH_MODE not in ("static", "passthrough"):
-    raise ValueError(
-        f"Invalid AWX_MCP_AUTH_MODE={AUTH_MODE!r}. Choose 'static' or 'passthrough'."
-    )
-
-MCP_HOST = os.environ.get("AWX_MCP_HOST", "127.0.0.1")
-try:
-    MCP_PORT = int(os.environ.get("AWX_MCP_PORT", "8000"))
-except ValueError as exc:
-    raise ValueError("AWX_MCP_PORT must be an integer.") from exc
-
-# Stateless streamable-http: each request is self-contained, so no per-session
-# state is held in this process. Required to run multiple --serve replicas behind
-# a plain round-robin load balancer — otherwise a session created on one replica
-# 404s when a later request is routed to another. Default off (preserves the
-# stateful session behavior for single-instance / sse setups).
-STATELESS_HTTP = truthy(os.environ.get("AWX_MCP_STATELESS_HTTP"))
 
 # --- Inbound request headers -------------------------------------------------
 # Passthrough mode needs the caller's headers from deep inside a tool body
@@ -132,86 +98,9 @@ mcp = MCPServer(
     middleware=[_capture_request_headers],
 )
 
-# Configuration
-ANSIBLE_BASE_URL = os.environ.get("ANSIBLE_BASE_URL")
-ANSIBLE_USERNAME = os.environ.get("ANSIBLE_USERNAME")
-ANSIBLE_PASSWORD = os.environ.get("ANSIBLE_PASSWORD")
-ANSIBLE_TOKEN = os.environ.get("ANSIBLE_TOKEN")
-# TLS: verification is ON by default (secure). The resolved requests `verify=`
-# value is computed into ANSIBLE_SSL_VERIFY below via tls_config.resolve_ssl_verify
-# (shared with the proxy), once the logger exists so the disable warning can fire.
-ENABLE_CREDENTIAL_MANAGEMENT = truthy(
-    os.environ.get("AWX_MCP_ENABLE_CREDENTIAL_MANAGEMENT")
-)
-READ_ONLY = truthy(os.environ.get("AWX_MCP_READ_ONLY"))
-
-# Validate required environment variables
-if not ANSIBLE_BASE_URL:
-    raise ValueError(
-        "ANSIBLE_BASE_URL environment variable is required. "
-        "Example: ANSIBLE_BASE_URL=https://awx.example.com/"
-    )
-# In static (local) mode this process must have its own AWX credentials. In
-# passthrough (--serve) mode it must NOT — each request carries the caller's
-# token — so credentials are not required here (any that are set are ignored,
-# warned about once the logger exists below).
-if (
-    AUTH_MODE == "static"
-    and not ANSIBLE_TOKEN
-    and not (ANSIBLE_USERNAME and ANSIBLE_PASSWORD)
-):
-    raise ValueError(
-        "Authentication is required. Set either ANSIBLE_TOKEN or both "
-        "ANSIBLE_USERNAME and ANSIBLE_PASSWORD environment variables."
-    )
-
-# Logging setup
-_PLAIN_LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-
-logging.basicConfig(
-    level=os.environ.get("ANSIBLE_LOG_LEVEL", "INFO").upper(),
-    format=_PLAIN_LOG_FORMAT,
-)
 logger = logging.getLogger("ansible-mcp")
-
-# In --serve mode every log record is JSON Lines: the stderr diagnostics switch
-# to the JSON formatter below (uvicorn's loggers route here too — main() passes
-# log_config=None), matching the usage/access JSONL sinks. Local stdio mode
-# keeps the human-readable plain format.
-_SERVE_MODE = os.environ.get("AWX_MCP_EFFECTIVE_TRANSPORT") in (
-    "sse",
-    "streamable-http",
-)
-
-# --- Base URL scheme: default to HTTPS ----------------------------------------
-# awx-mcp talks to AWX over HTTPS by default. A bare host (no scheme) is upgraded
-# to https://; an explicit http:// URL is honored but warned about, since it
-# sends the AWX token and all traffic in clear text.
-_parsed_base = urlparse(ANSIBLE_BASE_URL)
-if not _parsed_base.scheme:
-    ANSIBLE_BASE_URL = "https://" + ANSIBLE_BASE_URL
-elif _parsed_base.scheme == "http":
-    logger.warning(
-        "ANSIBLE_BASE_URL uses http:// — the AWX token and all traffic are sent "
-        "unencrypted. Use https:// in production."
-    )
-
-# --- TLS verification resolution ----------------------------------------------
-# ANSIBLE_SSL_VERIFY becomes the value passed to requests' `verify=` (False /
-# custom CA bundle path / True). Resolved via the shared, server-free helper so
-# the proxy computes it identically without importing this module.
-ANSIBLE_SSL_VERIFY: bool | str = resolve_ssl_verify(logger, ANSIBLE_BASE_URL)
-
-# In passthrough mode any server-side AWX credentials are ignored (each request
-# carries the caller's token); warn once so a misconfiguration is visible.
-if AUTH_MODE == "passthrough" and (
-    ANSIBLE_TOKEN or ANSIBLE_USERNAME or ANSIBLE_PASSWORD
-):
-    logger.warning(
-        "AUTH_MODE=passthrough (--serve): server-side ANSIBLE_TOKEN / "
-        "ANSIBLE_USERNAME / ANSIBLE_PASSWORD are ignored. Every AWX call uses "
-        "the per-request caller token."
-    )
+_PLAIN_LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+_server_log_handler: logging.Handler | None = None
 
 
 class _JsonLogFormatter(logging.Formatter):
@@ -230,42 +119,98 @@ class _JsonLogFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=False)
 
 
-# Optional diagnostic log file (opt-in). When AWX_MCP_SERVER_LOG_FILE is set, the
-# existing logging output is ALSO written to that file (stderr behaviour is
-# unchanged). Format is selectable via AWX_MCP_SERVER_LOG_FORMAT (plain|json).
-# stdout is never touched — it is reserved for the stdio MCP protocol.
-SERVER_LOG_FILE = os.environ.get("AWX_MCP_SERVER_LOG_FILE")
-SERVER_LOG_FORMAT = os.environ.get("AWX_MCP_SERVER_LOG_FORMAT", "plain").lower()
+def configure(settings: Settings) -> None:
+    """Configure the process at startup, before accepting any requests.
 
-if SERVER_LOG_FILE:
-    _server_log_handler = make_timed_rotating_handler(SERVER_LOG_FILE)
-    if SERVER_LOG_FORMAT == "json" or _SERVE_MODE:
-        _server_log_handler.setFormatter(_JsonLogFormatter())
-    else:
-        _server_log_handler.setFormatter(logging.Formatter(_PLAIN_LOG_FORMAT))
-    logging.getLogger().addHandler(_server_log_handler)
+    Repeating startup replaces owned log handlers and clears client/identity
+    caches so a former configuration cannot leak credentials into the next one.
+    Tool registration is explicit and separate via ``register_tools``.
+    """
+    global _server_log_handler
+    settings.validate_startup()
+    resolve_ssl_verify(logger, settings.base_url, settings)
+    configure_settings(settings)
+    from . import access_log, client, usage
 
-if _SERVE_MODE:
-    for _handler in logging.getLogger().handlers:
-        _handler.setFormatter(_JsonLogFormatter())
+    client.configure()
+    usage.configure()
+    access_log.configure()
+    logging.basicConfig(level=settings.log_level, format=_PLAIN_LOG_FORMAT)
+    root = logging.getLogger()
+    root.setLevel(settings.log_level)
+    if _server_log_handler is not None:
+        root.removeHandler(_server_log_handler)
+        _server_log_handler.close()
+        _server_log_handler = None
+    serve = settings.transport in ("sse", "streamable-http")
+    formatter = _JsonLogFormatter() if serve else logging.Formatter(_PLAIN_LOG_FORMAT)
+    for handler in root.handlers:
+        handler.setFormatter(formatter)
+    if settings.server_log_file:
+        _server_log_handler = make_timed_rotating_handler(settings.server_log_file)
+        _server_log_handler.setFormatter(
+            _JsonLogFormatter()
+            if serve or settings.server_log_format == "json"
+            else formatter
+        )
+        root.addHandler(_server_log_handler)
+    if not settings.ssl_verify:
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    if settings.base_url and urlparse(settings.base_url).scheme == "http":
+        logger.warning(
+            "ANSIBLE_BASE_URL uses http://: the AWX token and all traffic are "
+            "sent unencrypted. Use https:// in production."
+        )
+    if settings.auth_mode == "passthrough" and (
+        settings.token or settings.username or settings.password
+    ):
+        logger.warning(
+            "AUTH_MODE=passthrough (--serve): server-side ANSIBLE_TOKEN / "
+            "ANSIBLE_USERNAME / ANSIBLE_PASSWORD are ignored. Every AWX call "
+            "uses the per-request caller token."
+        )
+    if settings.enable_credential_management:
+        logger.warning(
+            "AWX_MCP_ENABLE_CREDENTIAL_MANAGEMENT=true: sensitive credential/user "
+            "write tools use Form-mode elicitation. Use only in trusted, "
+            "isolated environments. See README.md#security."
+        )
+    if settings.read_only:
+        logger.warning("AWX_MCP_READ_ONLY=true: only read tools are exposed.")
 
-# Suppress InsecureRequestWarning when SSL verification is disabled
-if not ANSIBLE_SSL_VERIFY:
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# --- Inbound TLS (sse / streamable-http server) -------------------------------
-# In-process TLS for the network transports. stdio has no network socket, so TLS
-# does not apply there. Off by default; when AWX_MCP_TLS_ENABLE is true the
-# server serves HTTPS and a certificate + private key are required (validated at
-# startup by resolve_tls_kwargs). This is inbound (client -> awx-mcp) TLS and is
-# unrelated to ANSIBLE_SSL_VERIFY, which secures the outbound connection to AWX.
-TLS_ENABLE = truthy(os.environ.get("AWX_MCP_TLS_ENABLE"))
-TLS_CERT = os.environ.get("AWX_MCP_TLS_CERT") or None
-TLS_KEY = os.environ.get("AWX_MCP_TLS_KEY") or None
-TLS_KEY_PASSWORD = os.environ.get("AWX_MCP_TLS_KEY_PASSWORD") or None
+# Read-only compatibility aliases for existing embedders. Runtime consumers use
+# get_settings(), never copied constants, so subsequent startup sees one source.
+_ALIASES = {
+    "ANSIBLE_BASE_URL": "base_url",
+    "ANSIBLE_USERNAME": "username",
+    "ANSIBLE_PASSWORD": "password",
+    "ANSIBLE_TOKEN": "token",
+    "ANSIBLE_SSL_VERIFY": "outbound_verify",
+    "AUTH_MODE": "auth_mode",
+    "READ_ONLY": "read_only",
+    "ENABLE_CREDENTIAL_MANAGEMENT": "enable_credential_management",
+    "MCP_HOST": "host",
+    "MCP_PORT": "port",
+    "STATELESS_HTTP": "stateless_http",
+    "TLS_ENABLE": "tls_enable",
+    "TLS_CERT": "tls_cert",
+    "TLS_KEY": "tls_key",
+    "TLS_KEY_PASSWORD": "tls_key_password",
+    "SERVER_LOG_FILE": "server_log_file",
+    "SERVER_LOG_FORMAT": "server_log_format",
+}
 
 
-def resolve_tls_kwargs(transport: str) -> dict[str, str] | None:
+def __getattr__(name: str) -> Any:
+    if name in _ALIASES:
+        return getattr(get_settings(), _ALIASES[name])
+    raise AttributeError(name)
+
+
+def resolve_tls_kwargs(
+    transport: str, settings: Settings | None = None
+) -> dict[str, str] | None:
     """Resolve uvicorn ``ssl_*`` kwargs for inbound TLS, or ``None`` when off.
 
     Returns ``None`` when TLS is disabled or when the transport is ``stdio``
@@ -275,7 +220,8 @@ def resolve_tls_kwargs(transport: str) -> dict[str, str] | None:
     misconfigured server fails fast at startup instead of silently serving
     plain HTTP.
     """
-    if not TLS_ENABLE:
+    settings = settings or get_settings()
+    if not settings.tls_enable:
         return None
     if transport == "stdio":
         logger.warning(
@@ -284,7 +230,7 @@ def resolve_tls_kwargs(transport: str) -> dict[str, str] | None:
         )
         return None
 
-    cert, key = TLS_CERT, TLS_KEY
+    cert, key = settings.tls_cert, settings.tls_key
     missing = [
         name
         for name, value in (("AWX_MCP_TLS_CERT", cert), ("AWX_MCP_TLS_KEY", key))
@@ -301,8 +247,8 @@ def resolve_tls_kwargs(transport: str) -> dict[str, str] | None:
             raise ValueError(f"{name} points to a file that does not exist: {path}")
 
     kwargs: dict[str, str] = {"ssl_certfile": cert, "ssl_keyfile": key}
-    if TLS_KEY_PASSWORD:
-        kwargs["ssl_keyfile_password"] = TLS_KEY_PASSWORD
+    if settings.tls_key_password:
+        kwargs["ssl_keyfile_password"] = settings.tls_key_password
     return kwargs
 
 
@@ -323,7 +269,7 @@ def get_request_header(name: str) -> str | None:
         return None
 
 
-def _request_is_read_only() -> bool:
+def _request_is_read_only(settings: Settings | None = None) -> bool:
     """True when the current passthrough request opted into read-only mode.
 
     Only meaningful in passthrough mode: a caller may send
@@ -331,12 +277,14 @@ def _request_is_read_only() -> bool:
     can only tighten access (never loosen it) and is advisory self-restriction,
     not a security boundary — the real boundary is the caller's AWX token scope.
     """
-    if AUTH_MODE != "passthrough":
+    if (settings or get_settings()).auth_mode != "passthrough":
         return False
     return truthy(get_request_header("x-awx-read-only"))
 
 
-def _read_only_gated(func: Callable[..., Any]) -> Callable[..., Any]:
+def _read_only_gated(
+    func: Callable[..., Any], settings: Settings | None = None
+) -> Callable[..., Any]:
     """Wrap a write tool so a read-only caller's invocation is rejected.
 
     In static/local mode this is a no-op (the check short-circuits on
@@ -351,7 +299,7 @@ def _read_only_gated(func: Callable[..., Any]) -> Callable[..., Any]:
 
     @contextmanager
     def _gate(_kwargs: dict[str, Any]) -> Iterator[None]:
-        if _request_is_read_only():
+        if _request_is_read_only(settings):
             raise PermissionError(message)
         yield
 
@@ -409,89 +357,114 @@ def tool_title(name: str) -> str:
     return title[0].upper() + title[1:]
 
 
-def read_tool(func):
-    """Register a pure read/GET MCP tool.
+@dataclass(frozen=True)
+class ToolSpec:
+    func: Callable[..., Any]
+    kind: str
+    annotations: ToolAnnotations
+    toolset: str
 
-    Always registered (read tools are exposed even in read-only mode) and
-    annotated with ``readOnlyHint=True``. Every tool also carries
-    ``openWorldHint=True``: each one calls out to an external AWX instance.
-    """
-    return mcp.tool(
-        title=tool_title(func.__name__),
-        annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True),
-        structured_output=False,
-    )(_surface_tool_errors(instrument_tool(func)))
+
+_REGISTRY: list[ToolSpec] = []
+
+
+def _collect(
+    func: Callable[..., Any], kind: str, annotations: ToolAnnotations
+) -> Callable[..., Any]:
+    spec = ToolSpec(func, kind, annotations, func.__module__.rsplit(".", 1)[-1])
+    # Module reloads replace the existing specification without changing order.
+    for index, previous in enumerate(_REGISTRY):
+        if (previous.func.__module__, previous.func.__name__) == (
+            func.__module__,
+            func.__name__,
+        ):
+            _REGISTRY[index] = spec
+            break
+    else:
+        _REGISTRY.append(spec)
+    return func
+
+
+def read_tool(func):
+    """Collect a pure read/GET tool. Registration happens at startup."""
+    return _collect(
+        func, "read", ToolAnnotations(readOnlyHint=True, openWorldHint=True)
+    )
 
 
 def write_tool(*, destructive: bool = False, idempotent: bool = False):
-    """Register a write MCP tool unless AWX_MCP_READ_ONLY is enabled.
-
-    When server-global ``READ_ONLY`` is true the tool is left unregistered
-    (returned as-is). Otherwise it is registered with annotations describing
-    whether the write is destructive and/or idempotent, and wrapped with a
-    call-time gate so a passthrough caller who sent ``X-AWX-Read-Only`` is
-    refused (the tool stays visible in tools/list but errors on call).
-    """
+    """Collect a write tool, preserving its safety annotations."""
 
     def deco(func):
-        if READ_ONLY:
-            return func
-        return mcp.tool(
-            title=tool_title(func.__name__),
-            annotations=ToolAnnotations(
+        return _collect(
+            func,
+            "write",
+            ToolAnnotations(
                 readOnlyHint=False,
                 destructiveHint=destructive,
                 idempotentHint=idempotent,
                 openWorldHint=True,
             ),
-            structured_output=False,
-        )(_surface_tool_errors(instrument_tool(_read_only_gated(func))))
+        )
 
     return deco
 
 
 def maybe_credential_management_tool(func):
-    """Register an MCP tool only when AWX_MCP_ENABLE_CREDENTIAL_MANAGEMENT=true.
+    """Collect an opt-in sensitive credential/user write tool."""
+    return _collect(
+        func,
+        "credential",
+        ToolAnnotations(
+            readOnlyHint=False,
+            destructiveHint=True,
+            idempotentHint=False,
+            openWorldHint=True,
+        ),
+    )
 
-    Gates the four credential/user write tools (``create_credential``,
-    ``update_credential``, ``create_user``, ``update_user``) that collect
-    sensitive data via Form-mode elicitation. By default the flag is unset and
-    these tools are not registered, so the shipped server exposes no tool that
-    handles sensitive data.
 
-    Sensitive credential/user writes are still writes, so they are also gated by
-    ``READ_ONLY``: when read-only mode is enabled they are not registered even
-    if credential management is enabled.
+def register_tools(target: MCPServer, settings: Settings) -> list[str]:
+    """Expose the selected toolsets and gates, replacing previous registration.
+
+    Tools are imported deterministically. Import errors propagate rather than
+    silently omitting a module. User-registered unrelated tools are preserved.
     """
-    if ENABLE_CREDENTIAL_MANAGEMENT and not READ_ONLY:
-        return mcp.tool(
-            title=tool_title(func.__name__),
-            annotations=ToolAnnotations(
-                readOnlyHint=False,
-                destructiveHint=True,
-                idempotentHint=False,
-                openWorldHint=True,
-            ),
+    from . import tools  # noqa: F401 - imports every module to collect specs
+
+    available = {spec.toolset for spec in _REGISTRY}
+    if settings.toolsets is not None:
+        if not settings.toolsets:
+            raise ValueError("toolsets selection must not be empty.")
+        unknown = set(settings.toolsets) - available
+        if unknown:
+            raise ValueError(
+                "Unknown toolset(s): "
+                + ", ".join(sorted(unknown))
+                + ". Available: "
+                + ", ".join(sorted(available))
+            )
+    selected = [
+        spec
+        for spec in _REGISTRY
+        if (settings.toolsets is None or spec.toolset in settings.toolsets)
+        and (not settings.read_only or spec.kind == "read")
+        and (settings.enable_credential_management or spec.kind != "credential")
+    ]
+    owned_names = {spec.func.__name__ for spec in _REGISTRY}
+    for tool in list(target._tool_manager.list_tools()):
+        if tool.name in owned_names:
+            target.remove_tool(tool.name)
+    for spec in selected:
+        func = (
+            spec.func if spec.kind == "read" else _read_only_gated(spec.func, settings)
+        )
+        target.tool(
+            title=tool_title(spec.func.__name__),
+            annotations=spec.annotations,
             structured_output=False,
-        )(_surface_tool_errors(instrument_tool(_read_only_gated(func))))
-    return func
-
-
-if ENABLE_CREDENTIAL_MANAGEMENT:
-    logger.warning(
-        "AWX_MCP_ENABLE_CREDENTIAL_MANAGEMENT=true detected. "
-        "Credential/user write tools (create_credential, update_credential, "
-        "create_user, update_user) are now exposed and use Form-mode elicitation, "
-        "which is not spec-compliant for sensitive data per the MCP specification. "
-        "Use only in trusted, isolated environments. "
-        "See README.md#security for the threat model."
-    )
-
-if READ_ONLY:
-    logger.warning(
-        "AWX_MCP_READ_ONLY=true detected. All write/destructive tools are "
-        "unregistered; only read tools are exposed."
-    )
+        )(_surface_tool_errors(instrument_tool(func)))
+    return [spec.func.__name__ for spec in selected]
 
 
 def warn_if_exposed(host: str, tls_enabled: bool) -> None:

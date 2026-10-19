@@ -10,15 +10,14 @@ plus an ``ANSIBLE_TOKEN`` env var) while all AWX access is attributed and logged
 centrally.
 
 This module deliberately never imports ``awx_mcp.server``: proxy users do not
-set ``ANSIBLE_BASE_URL`` (the central server manages AWX access), and importing
-``server`` would trigger its startup validation and crash. Outbound TLS settings
+set ``ANSIBLE_BASE_URL`` (the central server manages AWX access), and do not
+need the local server or tool catalog. Outbound TLS settings
 come from the shared, server-free :mod:`awx_mcp.tls_config`.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 import sys
 import time
 from typing import Any
@@ -41,9 +40,10 @@ from mcp.types import (
     TextContent,
 )
 
+from .settings import Settings, configure_settings, get_settings
 from .tls_config import resolve_ssl_verify
 from .usage import record_proxy_tool_call
-from .utils import mask_secrets, package_version, truthy
+from .utils import mask_secrets, package_version
 
 logger = logging.getLogger("awx-mcp.proxy")
 
@@ -141,11 +141,11 @@ async def _run_proxy_async(url: str, token: str, ssl_verify: bool | str) -> None
     headers = {"Authorization": f"Bearer {token}"}
     # A user may restrict their own session to read-only; the central server
     # enforces it per request. This can only tighten access.
-    if truthy(os.environ.get("AWX_MCP_READ_ONLY")):
+    if get_settings().read_only:
         headers["X-AWX-Read-Only"] = "true"
 
     central_host = urlparse(url).hostname or "unknown"
-    usage_user = os.environ.get("AWX_MCP_USAGE_USER") or "local"
+    usage_user = get_settings().usage_user or "local"
 
     async with httpx2.AsyncClient(
         headers=headers, verify=ssl_verify, timeout=_HTTP_TIMEOUT
@@ -203,7 +203,7 @@ async def _run_proxy_async(url: str, token: str, ssl_verify: bool | str) -> None
                     await proxy.run(stdio_read, stdio_write, init_opts)
 
 
-def run_proxy(url: str) -> None:
+def run_proxy(url: str, settings: Settings | None = None) -> None:
     """Run the stdio<->central relay until stdin closes.
 
     Reads the caller's token from ``ANSIBLE_TOKEN`` (PAT only — username/password
@@ -212,21 +212,26 @@ def run_proxy(url: str) -> None:
     to the central awx-mcp, not to AWX). Exits non-zero with a clear message on
     a fatal startup/connection error.
     """
+    settings = settings or Settings.from_env(
+        overrides={"remote_url": url, "transport": "proxy"}
+    )
+    try:
+        settings.validate_startup()
+        ssl_verify = resolve_ssl_verify(logger, url, settings)
+    except ValueError as exc:
+        sys.exit(str(exc))
+    configure_settings(settings)
+    from . import usage
+
+    usage.configure()
     logging.basicConfig(
-        level=os.environ.get("ANSIBLE_LOG_LEVEL", "INFO").upper(),
+        level=settings.log_level,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         stream=sys.stderr,
     )
 
-    token = os.environ.get("ANSIBLE_TOKEN")
-    if not token:
-        sys.exit(
-            "ANSIBLE_TOKEN is required for --remote (proxy) mode. Proxy mode "
-            "forwards a personal access token as a Bearer header; "
-            "ANSIBLE_USERNAME/PASSWORD are not supported."
-        )
-
-    ssl_verify = resolve_ssl_verify(logger, url)
+    token = settings.token
+    assert token is not None
 
     try:
         anyio.run(_run_proxy_async, url, token, ssl_verify)
