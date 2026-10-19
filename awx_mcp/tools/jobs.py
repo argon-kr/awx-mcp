@@ -149,14 +149,7 @@ def get_job_stdout(job_id: int, format: str = "txt") -> str:
     """
     valid_formats = ["txt", "html", "json", "ansi", "txt_download", "ansi_download"]
     if format not in valid_formats:
-        return to_json(
-            {
-                "status": "error",
-                "message": (
-                    f"Invalid format. Must be one of: {', '.join(valid_formats)}"
-                ),
-            }
-        )
+        raise ValueError(f"Invalid format. Must be one of: {', '.join(valid_formats)}")
 
     with get_ansible_client() as client:
         if format != "json":

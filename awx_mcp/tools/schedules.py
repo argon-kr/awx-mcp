@@ -80,9 +80,7 @@ def create_schedule(
         description: Schedule description and intent
         extra_data: JSON string of extra vars passed at each scheduled launch
     """
-    parsed_extra, error = parse_json_str(extra_data, "extra_data")
-    if error:
-        return error
+    parsed_extra = parse_json_str(extra_data, "extra_data")
 
     with get_ansible_client() as client:
         data = {
@@ -120,9 +118,7 @@ def update_schedule(
     """
     parsed_extra = None
     if extra_data is not None:
-        parsed_extra, error = parse_json_str(extra_data, "extra_data")
-        if error:
-            return error
+        parsed_extra = parse_json_str(extra_data, "extra_data")
 
     with get_ansible_client() as client:
         data = {}

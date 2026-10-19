@@ -100,20 +100,10 @@ def create_project(
         description: Description of the project
     """
     if scm_type not in ["", "git", "hg", "svn", "manual"]:
-        return to_json(
-            {
-                "status": "error",
-                "message": "Invalid SCM type. Must be one of: git, hg, svn, manual",
-            }
-        )
+        raise ValueError("Invalid SCM type. Must be one of: git, hg, svn, manual")
 
     if scm_type != "manual" and not scm_url:
-        return to_json(
-            {
-                "status": "error",
-                "message": "SCM URL is required for non-manual SCM types",
-            }
-        )
+        raise ValueError("SCM URL is required for non-manual SCM types")
 
     with get_ansible_client() as client:
         data = {
@@ -158,12 +148,7 @@ def update_project(
         description: New description
     """
     if scm_type is not None and scm_type not in ["", "git", "hg", "svn", "manual"]:
-        return to_json(
-            {
-                "status": "error",
-                "message": "Invalid SCM type. Must be one of: git, hg, svn, manual",
-            }
-        )
+        raise ValueError("Invalid SCM type. Must be one of: git, hg, svn, manual")
 
     with get_ansible_client() as client:
         data = {}
@@ -324,14 +309,7 @@ def get_project_update_stdout(update_id: int, format: str = "txt") -> str:
     """
     valid_formats = ["txt", "html", "json", "ansi", "txt_download", "ansi_download"]
     if format not in valid_formats:
-        return to_json(
-            {
-                "status": "error",
-                "message": (
-                    f"Invalid format. Must be one of: {', '.join(valid_formats)}"
-                ),
-            }
-        )
+        raise ValueError(f"Invalid format. Must be one of: {', '.join(valid_formats)}")
 
     with get_ansible_client() as client:
         if format != "json":

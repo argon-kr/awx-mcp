@@ -34,9 +34,7 @@ def run_ad_hoc_command(
         verbosity: Verbosity level from 0 to 4 (0 is minimal output)
     """
     if verbosity not in range(5):
-        return to_json(
-            {"status": "error", "message": "Verbosity must be between 0 and 4"}
-        )
+        raise ValueError("Verbosity must be between 0 and 4")
 
     with get_ansible_client() as client:
         data = {

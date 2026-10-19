@@ -26,6 +26,7 @@ import pytest
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
+import awx_mcp.tools  # noqa: F401  (registers the tools on server.mcp)
 from awx_mcp import server
 from awx_mcp.exceptions import (
     AnsibleAuthError,
@@ -125,3 +126,26 @@ def test_failure_text_reaches_the_client_through_mcpserver():
     text = str(info.value)
     assert text.startswith("Error executing tool get_ansible_version")
     assert "token is required" in text.lower()
+
+
+@pytest.mark.parametrize(
+    ("tool", "args", "needle"),
+    [
+        ("get_job_stdout", {"job_id": 1, "format": "bogus"}, "Invalid format"),
+        ("launch_job", {"template_id": 1, "extra_vars": "{bad"}, "extra_vars"),
+        (
+            "create_inventory",
+            {"name": "x", "organization_id": 1, "variables": "{"},
+            "variables",
+        ),
+    ],
+)
+def test_argument_validation_failure_is_a_tool_error_not_a_success(tool, args, needle):
+    """In-tool validation raises, so the client gets ``isError`` with the reason.
+
+    Previously these returned ``{"status": "error", ...}`` as a *successful*
+    result, which a model could mistake for a completed call.
+    """
+    with pytest.raises(ToolError) as info:
+        anyio.run(server.mcp.call_tool, tool, args)
+    assert needle in str(info.value)

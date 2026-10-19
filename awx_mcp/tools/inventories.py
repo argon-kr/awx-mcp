@@ -87,9 +87,7 @@ def create_inventory(
         description: Description of the inventory
         variables: JSON string of inventory-level variables
     """
-    error = validate_json_str(variables, "variables")
-    if error:
-        return error
+    validate_json_str(variables, "variables")
 
     with get_ansible_client() as client:
         data = {
@@ -122,9 +120,7 @@ def update_inventory(
         variables: JSON string of inventory-level variables
     """
     if variables is not None:
-        error = validate_json_str(variables, "variables")
-        if error:
-            return error
+        validate_json_str(variables, "variables")
 
     with get_ansible_client() as client:
         data: dict[str, Any] = {}
@@ -257,9 +253,7 @@ def create_inventory_source(
     """
     looks_like_json = source_vars.strip()[:1] in ("{", "[")
     if looks_like_json:
-        error = validate_json_str(source_vars, "source_vars")
-        if error:
-            return error
+        validate_json_str(source_vars, "source_vars")
 
     with get_ansible_client() as client:
         data = {
@@ -314,9 +308,7 @@ def update_inventory_source(
     if source_vars is not None:
         looks_like_json = source_vars.strip()[:1] in ("{", "[")
         if looks_like_json:
-            error = validate_json_str(source_vars, "source_vars")
-            if error:
-                return error
+            validate_json_str(source_vars, "source_vars")
 
     with get_ansible_client() as client:
         data: dict[str, Any] = {}

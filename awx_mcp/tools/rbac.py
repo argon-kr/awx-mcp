@@ -168,13 +168,8 @@ def list_object_roles(
         "credentials",
     ]
     if resource_type not in valid_types:
-        return to_json(
-            {
-                "status": "error",
-                "message": (
-                    f"Invalid resource_type. Must be one of: {', '.join(valid_types)}"
-                ),
-            }
+        raise ValueError(
+            f"Invalid resource_type. Must be one of: {', '.join(valid_types)}"
         )
 
     with get_ansible_client() as client:

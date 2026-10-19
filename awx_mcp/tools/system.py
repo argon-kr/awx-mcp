@@ -209,9 +209,7 @@ def launch_system_job(template_id: int, extra_vars: str = None) -> str:
         extra_vars: JSON string of extra variables (e.g., {"days": 90})
     """
     if extra_vars is not None:
-        error = validate_json_str(extra_vars, "extra_vars")
-        if error:
-            return error
+        validate_json_str(extra_vars, "extra_vars")
 
     with get_ansible_client() as client:
         data = {}

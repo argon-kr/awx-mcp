@@ -102,9 +102,7 @@ def create_workflow_template(
         limit: Default host limit pattern for nodes that prompt on launch
         scm_branch: Default SCM branch for nodes that prompt on launch
     """
-    error = validate_json_str(extra_vars, "extra_vars")
-    if error:
-        return error
+    validate_json_str(extra_vars, "extra_vars")
 
     with get_ansible_client() as client:
         data = {
@@ -156,9 +154,7 @@ def update_workflow_template(
         scm_branch: Default SCM branch for nodes that prompt on launch
     """
     if extra_vars is not None:
-        error = validate_json_str(extra_vars, "extra_vars")
-        if error:
-            return error
+        validate_json_str(extra_vars, "extra_vars")
 
     with get_ansible_client() as client:
         data: dict[str, Any] = {}
@@ -229,9 +225,7 @@ def launch_workflow(
         scm_branch: Override SCM branch for projects in the workflow
     """
     if extra_vars is not None:
-        error = validate_json_str(extra_vars, "extra_vars")
-        if error:
-            return error
+        validate_json_str(extra_vars, "extra_vars")
 
     with get_ansible_client() as client:
         data: dict[str, Any] = {}
@@ -306,9 +300,7 @@ def set_workflow_template_survey(template_id: int, survey_spec: str) -> str:
         survey_spec: JSON string of the survey spec
             (must include name, description, spec array)
     """
-    spec, error = parse_json_str(survey_spec, "survey_spec")
-    if error:
-        return error
+    spec = parse_json_str(survey_spec, "survey_spec")
 
     with get_ansible_client() as client:
         response = client.request(
@@ -422,9 +414,7 @@ def create_workflow_template_node(
             this node runs
         extra_data: JSON string of extra variables for this node
     """
-    parsed_extra, error = parse_json_str(extra_data, "extra_data")
-    if error:
-        return error
+    parsed_extra = parse_json_str(extra_data, "extra_data")
 
     with get_ansible_client() as client:
         data = {

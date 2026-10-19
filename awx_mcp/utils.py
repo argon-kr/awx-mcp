@@ -34,28 +34,23 @@ def to_json(obj: object) -> str:
     return json.dumps(obj, separators=(",", ":"), ensure_ascii=False)
 
 
-def validate_json_str(value: str, param_name: str) -> str | None:
+def validate_json_str(value: str, param_name: str) -> None:
     """Validate a JSON string parameter.
 
-    Returns MCP error response if invalid, None if valid.
+    Raises ``ValueError`` (surfaced to the client as an ``isError`` tool result
+    by ``server._surface_tool_errors``) when ``value`` is not valid JSON.
+    """
+    parse_json_str(value, param_name)
+
+
+def parse_json_str(value: str, param_name: str) -> object:
+    """Parse a JSON string parameter.
+
+    Returns the parsed value. Raises ``ValueError`` naming ``param_name`` when
+    ``value`` is not valid JSON, so the tool call fails with ``isError`` instead
+    of returning an error-shaped payload that reads as success.
     """
     try:
-        json.loads(value)
-        return None
-    except json.JSONDecodeError:
-        return json.dumps(
-            {"status": "error", "message": f"Invalid JSON in {param_name}"}
-        )
-
-
-def parse_json_str(value: str, param_name: str) -> tuple:
-    """Parse a JSON string.
-
-    Returns (parsed_data, None) on success, (None, error_response) on failure.
-    """
-    try:
-        return json.loads(value), None
-    except json.JSONDecodeError:
-        return None, json.dumps(
-            {"status": "error", "message": f"Invalid JSON in {param_name}"}
-        )
+        return json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON in {param_name}: {exc.msg}") from exc

@@ -91,9 +91,7 @@ def create_host(
         description: Description of the host
         enabled: Whether the host is included in job runs
     """
-    error = validate_json_str(variables, "variables")
-    if error:
-        return error
+    validate_json_str(variables, "variables")
 
     with get_ansible_client() as client:
         data = {
@@ -129,9 +127,7 @@ def update_host(
         enabled: Whether the host is included in job runs
     """
     if variables is not None:
-        error = validate_json_str(variables, "variables")
-        if error:
-            return error
+        validate_json_str(variables, "variables")
 
     with get_ansible_client() as client:
         data: dict[str, Any] = {}

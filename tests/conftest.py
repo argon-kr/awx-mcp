@@ -97,3 +97,12 @@ def fake_ctx_invalid_json():
 @pytest.fixture
 def fake_ctx_password_accept():
     return FakeContext(_FakeElicitResult("accept", _FakeElicitData(password="s3cret")))
+
+
+# Argument-validation failures inside a tool raise ``ValueError``. Called
+# through the registration decorators it arrives as ``ToolError`` (see
+# ``server._surface_tool_errors``); an unregistered opt-in tool (credential
+# management off) raises the bare ``ValueError``. Tests accept either.
+from mcp.server.mcpserver.exceptions import ToolError  # noqa: E402
+
+TOOL_ERRORS = (ValueError, ToolError)

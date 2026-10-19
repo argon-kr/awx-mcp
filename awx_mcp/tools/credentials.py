@@ -153,9 +153,7 @@ async def create_credential(
             {"status": "cancelled", "message": "Credential input was declined"}
         )
 
-    parsed_inputs, error = parse_json_str(result.data.inputs, "inputs")
-    if error:
-        return error
+    parsed_inputs = parse_json_str(result.data.inputs, "inputs")
 
     with get_ansible_client() as client:
         data = {
@@ -213,9 +211,7 @@ async def update_credential(
             return to_json(
                 {"status": "cancelled", "message": "Credential input was declined"}
             )
-        parsed_inputs, error = parse_json_str(result.data.inputs, "inputs")
-        if error:
-            return error
+        parsed_inputs = parse_json_str(result.data.inputs, "inputs")
 
     with get_ansible_client() as client:
         data = {}

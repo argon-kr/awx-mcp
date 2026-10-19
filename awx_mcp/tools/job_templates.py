@@ -106,15 +106,11 @@ def create_job_template(
         timeout: Job timeout in seconds (0 for no timeout)
     """
     if job_type not in ("run", "check"):
-        return to_json(
-            {"status": "error", "message": "Invalid job_type. Must be 'run' or 'check'"}
-        )
+        raise ValueError("Invalid job_type. Must be 'run' or 'check'")
     if verbosity not in range(6):
-        return to_json({"status": "error", "message": "Invalid verbosity. Must be 0-5"})
+        raise ValueError("Invalid verbosity. Must be 0-5")
 
-    error = validate_json_str(extra_vars, "extra_vars")
-    if error:
-        return error
+    validate_json_str(extra_vars, "extra_vars")
 
     with get_ansible_client() as client:
         data = {
@@ -181,15 +177,11 @@ def update_job_template(
         timeout: Job timeout in seconds (0 for no timeout)
     """
     if job_type is not None and job_type not in ("run", "check"):
-        return to_json(
-            {"status": "error", "message": "Invalid job_type. Must be 'run' or 'check'"}
-        )
+        raise ValueError("Invalid job_type. Must be 'run' or 'check'")
     if verbosity is not None and verbosity not in range(6):
-        return to_json({"status": "error", "message": "Invalid verbosity. Must be 0-5"})
+        raise ValueError("Invalid verbosity. Must be 0-5")
     if extra_vars is not None:
-        error = validate_json_str(extra_vars, "extra_vars")
-        if error:
-            return error
+        validate_json_str(extra_vars, "extra_vars")
 
     with get_ansible_client() as client:
         data: dict[str, Any] = {}
@@ -281,9 +273,7 @@ def launch_job(
         diff_mode: Override diff mode setting
     """
     if extra_vars is not None:
-        error = validate_json_str(extra_vars, "extra_vars")
-        if error:
-            return error
+        validate_json_str(extra_vars, "extra_vars")
 
     with get_ansible_client() as client:
         data: dict[str, Any] = {}
@@ -370,9 +360,7 @@ def set_job_template_survey(template_id: int, survey_spec: str) -> str:
         survey_spec: JSON string of the survey spec
             (must include name, description, spec array)
     """
-    spec, error = parse_json_str(survey_spec, "survey_spec")
-    if error:
-        return error
+    spec = parse_json_str(survey_spec, "survey_spec")
 
     with get_ansible_client() as client:
         response = client.request(

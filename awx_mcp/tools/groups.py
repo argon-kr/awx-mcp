@@ -87,9 +87,7 @@ def create_group(
         variables: JSON string of group variables
         description: Description of the group
     """
-    error = validate_json_str(variables, "variables")
-    if error:
-        return error
+    validate_json_str(variables, "variables")
 
     with get_ansible_client() as client:
         data = {
@@ -119,9 +117,7 @@ def update_group(
         description: New description for the group
     """
     if variables is not None:
-        error = validate_json_str(variables, "variables")
-        if error:
-            return error
+        validate_json_str(variables, "variables")
 
     with get_ansible_client() as client:
         data = {}
