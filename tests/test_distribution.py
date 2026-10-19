@@ -81,7 +81,7 @@ def test_explicit_mode_conflicts_are_usage_errors(args, remote_url):
     assert "ANSIBLE_BASE_URL" not in result.stderr
 
 
-def release_fixture(tmp_path, version="24.6.1.1"):
+def release_fixture(tmp_path, version="1.0.0"):
     (tmp_path / "pyproject.toml").write_text(
         f'[project]\nname = "awx-mcp"\nversion = "{version}"\n'
     )
@@ -110,7 +110,7 @@ def release_fixture(tmp_path, version="24.6.1.1"):
     return tmp_path
 
 
-def prepare(root, tag="v24.6.1.1", repository="lycorp-jp/awx-mcp"):
+def prepare(root, tag="v1.0.0", repository="lycorp-jp/awx-mcp"):
     return subprocess.run(
         [
             sys.executable,
@@ -129,26 +129,37 @@ def prepare(root, tag="v24.6.1.1", repository="lycorp-jp/awx-mcp"):
     )
 
 
-def test_prepare_four_part_release_and_extract_only_its_notes(tmp_path):
-    root = release_fixture(tmp_path)
-    result = prepare(root)
+@pytest.mark.parametrize("version", ["0.1.0", "1.0.0", "1.2.3", "10.20.30"])
+def test_prepare_semver_release_and_extract_only_its_notes(tmp_path, version):
+    root = release_fixture(tmp_path, version)
+    result = prepare(root, f"v{version}")
     assert result.returncode == 0, result.stderr
     notes = (root / "output/release-notes.md").read_text()
     assert "Release improvements." in notes
     assert "Historical release." not in notes
     assert "example.com/compare" not in notes
-    assert (
-        json.loads((root / "output/server.json").read_text())["version"] == "24.6.1.1"
-    )
+    assert json.loads((root / "output/server.json").read_text())["version"] == version
+
+
+@pytest.mark.parametrize(
+    "tag",
+    ["v1.0.0.1", "v01.0.0", "v1.00.0", "v1.0.00", "v1.0", "v1.0.0-rc.1"],
+)
+def test_prepare_rejects_non_stable_semver_before_writing_output(tmp_path, tag):
+    root = release_fixture(tmp_path, tag[1:])
+    result = prepare(root, tag)
+    assert result.returncode != 0
+    assert "vMAJOR.MINOR.PATCH" in result.stderr
+    assert not (root / "output").exists()
 
 
 @pytest.mark.parametrize("mismatch", ["tag", "manifest", "image", "unreleased", "fork"])
 def test_prepare_rejects_release_mismatch_before_writing_output(tmp_path, mismatch):
     root = release_fixture(tmp_path)
-    tag = "v24.6.1.1"
+    tag = "v1.0.0"
     repository = "lycorp-jp/awx-mcp"
     if mismatch == "tag":
-        tag = "v24.6.1.2"
+        tag = "v1.0.1"
     elif mismatch in ("manifest", "image"):
         manifest = json.loads((root / "server.json").read_text())
         if mismatch == "manifest":

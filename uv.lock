@@ -108,7 +108,7 @@ wheels = [
 
 [[package]]
 name = "awx-mcp"
-version = "24.6.1"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx2" },

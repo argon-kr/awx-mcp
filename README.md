@@ -108,7 +108,7 @@ flowchart LR
 | AWX | 24.6.1 (REST API v2) |
 | Python | ≥ 3.10 |
 | MCP transport | STDIO, SSE, Streamable HTTP |
-| Version policy | Server versions mirror the tested AWX version, for example `24.6.1`. Server-only releases add a fourth segment, for example `24.6.1.1`. These are policy examples, not a claim that a release tag exists. |
+| Server version | `1.0.0`, versioned independently from AWX using SemVer (`MAJOR.MINOR.PATCH`). Breaking public-interface changes increment MAJOR, compatible features increment MINOR, and compatible fixes increment PATCH. Release tags use `vMAJOR.MINOR.PATCH`. No release tag is implied by this development version. |
 | Other AWX / Ansible Tower versions | Not verified by this compatibility claim. Validate against your instance before adoption. |
 
 ---

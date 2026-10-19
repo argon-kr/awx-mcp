@@ -15,8 +15,11 @@ def prepare(root: Path, tag: str, repository: str) -> tuple[str, dict]:
         raise ValueError(
             "Publishing upstream identity is restricted to lycorp-jp/awx-mcp."
         )
-    if not re.fullmatch(r"v\d+\.\d+\.\d+(?:\.\d+)?", tag):
-        raise ValueError("Release tag must be vAWX_VERSION or vAWX_VERSION.REVISION.")
+    if not re.fullmatch(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", tag):
+        raise ValueError(
+            "Release tag must be stable SemVer vMAJOR.MINOR.PATCH "
+            "with no leading zeros."
+        )
     version = tag[1:]
     project = re.search(
         r"^\[project\]\s*\n(.*?)(?=^\[|\Z)",

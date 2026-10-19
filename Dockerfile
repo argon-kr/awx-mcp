@@ -24,7 +24,7 @@ RUN uv sync --frozen --no-dev --no-editable --compile-bytecode
 
 FROM python:3.12-slim AS runtime
 
-ARG VERSION=24.6.1
+ARG VERSION=1.0.0
 LABEL org.opencontainers.image.source="https://github.com/lycorp-jp/awx-mcp" \
     org.opencontainers.image.licenses="Apache-2.0" \
     org.opencontainers.image.version="${VERSION}" \

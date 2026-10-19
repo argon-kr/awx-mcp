@@ -108,7 +108,7 @@ flowchart LR
 | AWX | 24.6.1 (REST API v2) |
 | Python | ≥ 3.10 |
 | MCP transport | STDIO, SSE, Streamable HTTP |
-| 버전 정책 | 서버 버전은 검증한 AWX 버전을 따릅니다. 예를 들어 `24.6.1`을 사용하며, 동일한 AWX 버전에서 서버만 변경하면 `24.6.1.1`처럼 네 번째 숫자를 추가합니다. 이 값은 정책을 설명하는 예시이며 release tag의 존재를 뜻하지 않습니다. |
+| 서버 버전 | AWX와 독립적인 SemVer(`MAJOR.MINOR.PATCH`)를 사용하며 현재 개발 버전은 `1.0.0`입니다. 공개 인터페이스의 호환성을 깨는 변경은 MAJOR, 호환되는 기능 추가는 MINOR, 호환되는 수정은 PATCH를 올립니다. Release tag는 `vMAJOR.MINOR.PATCH` 형식이며, 개발 버전 표기가 tag의 존재를 뜻하지는 않습니다. |
 | 다른 AWX / Ansible Tower 버전 | 이 호환성 표에서 검증했다고 주장하지 않습니다. 도입 전에 사용하는 인스턴스에서 확인하세요. |
 
 ---

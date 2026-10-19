@@ -3,8 +3,8 @@
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com),
-and this project versions releases after the AWX release it is tested
-against (see [Versioning](#versioning)).
+and new server releases follow [Semantic Versioning](https://semver.org/)
+independently of the tested AWX version (see [Versioning](#versioning)).
 
 ## [Unreleased]
 
@@ -113,6 +113,11 @@ against (see [Versioning](#versioning)).
   warning is logged). (#15)
 
 ### Changed
+- Server versioning now starts an independent SemVer line at `1.0.0`.
+  Package, container and Registry metadata use the server version, while
+  AWX compatibility remains documented separately as tested AWX 24.6.1.
+  Release preparation accepts stable `vMAJOR.MINOR.PATCH` tags and rejects
+  fourth segments and leading zeros. This does not publish a release.
 - Setup, secure token examples, troubleshooting, and the read-only fixture demo
   are documented in English, Korean, and Japanese. The demo uses synthetic
   data and real MCP calls against a local fake AWX fixture.
@@ -251,6 +256,9 @@ against (see [Versioning](#versioning)).
 
 ## [24.6.1] - 2026-06-15
 
+Historical AWX-derived version, retained for reference. This predates the
+independent SemVer line and does not imply that a release tag was published.
+
 ### Changed
 - Version scheme tracks the AWX upstream release
   (<https://github.com/ansible/awx/releases/tag/24.6.1>).
@@ -264,7 +272,10 @@ against (see [Versioning](#versioning)).
 - Tool docstrings enhanced with disambiguation cues, return hints, chaining
   guides, and destructive-operation warnings.
 
-## [1.0.1]
+## Legacy 1.0.1
+
+Historical label from before the AWX-derived version scheme, not a release
+in the new independent SemVer line.
 
 ### Fixed
 - `create_job_template`: removed the deprecated `credential_id` parameter
@@ -275,7 +286,10 @@ against (see [Versioning](#versioning)).
 - `create_execution_environment` / `update_execution_environment`: added the
   `pull` parameter (`"always"`, `"missing"`, `"never"`).
 
-## [1.0.0]
+## Legacy 1.0.0
+
+Historical label from before the AWX-derived version scheme, not a release
+in the new independent SemVer line.
 
 ### Added
 - Initial release: MCP tools for the AWX REST API v2 across 20 domain modules
@@ -289,13 +303,22 @@ against (see [Versioning](#versioning)).
 
 ## Versioning
 
-The version is the AWX release this server is tested against (`24.6.1` is
-tested against AWX 24.6.1, REST API v2). A release that changes only the
-server, against the same AWX release, appends a fourth number: `24.6.1.1`,
-`24.6.1.2`, … (valid PEP 440). Moving to a newer tested AWX release resets to
-that release's number. Read the section for a release before upgrading: a
-fourth-number release can still contain breaking changes to tool output,
-flagged **BREAKING** above.
+New releases use independent SemVer, starting at `1.0.0`:
 
-[Unreleased]: https://github.com/lycorp-jp/awx-mcp/compare/v24.6.1...HEAD
-[24.6.1]: https://github.com/lycorp-jp/awx-mcp/releases/tag/v24.6.1
+- MAJOR increments for incompatible changes to public tools, result contracts,
+  resources, prompts, CLI options or configuration.
+- MINOR increments for backward-compatible features.
+- PATCH increments for backward-compatible fixes.
+
+The tested AWX version is a separate compatibility claim in the READMEs.
+Changing that claim does not set the server version. Stable release tags use
+`vMAJOR.MINOR.PATCH`, with no fourth segment or leading zeros. The current
+publication workflow supports stable releases only, not prerelease or build
+metadata suffixes.
+
+The historical AWX-derived `24.6.1` and older Legacy labels above are preserved
+as history. The new `1.0.0` has not been released: its changes remain under
+Unreleased until a dated release section is cut. Legacy labels are not reused
+as release-note section identifiers for this new line.
+
+[Unreleased]: https://github.com/lycorp-jp/awx-mcp/commits/main

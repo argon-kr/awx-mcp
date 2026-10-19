@@ -108,7 +108,7 @@ flowchart LR
 | AWX | 24.6.1（REST API v2） |
 | Python | ≥ 3.10 |
 | MCP トランスポート | STDIO、SSE、Streamable HTTP |
-| バージョン方針 | サーバーバージョンは検証済み AWX バージョンに合わせます。例は `24.6.1` で、同じ AWX に対するサーバーのみの release は `24.6.1.1` のように 4 番目の数字を追加します。これは方針の例であり、release tag の存在を意味しません。 |
+| サーバーバージョン | AWX とは独立した SemVer（`MAJOR.MINOR.PATCH`）を使い、現在の開発バージョンは `1.0.0` です。公開インターフェースの互換性を壊す変更は MAJOR、互換性のある機能追加は MINOR、互換性のある修正は PATCH を上げます。Release tag は `vMAJOR.MINOR.PATCH` 形式です。開発バージョンの表記は tag の存在を意味しません。 |
 | その他の AWX / Ansible Tower バージョン | この表の検証対象ではありません。導入前に利用するインスタンスで確認してください。 |
 
 ---

@@ -3,7 +3,7 @@
   "name": "io.github.lycorp-jp/awx-mcp",
   "title": "AWX MCP Server",
   "description": "Manage AWX and Ansible Tower automation through MCP with per-user authentication and read-only mode.",
-  "version": "24.6.1",
+  "version": "1.0.0",
   "repository": {
     "url": "https://github.com/lycorp-jp/awx-mcp",
     "source": "github"
@@ -12,7 +12,7 @@
   "packages": [
     {
       "registryType": "oci",
-      "identifier": "ghcr.io/lycorp-jp/awx-mcp:24.6.1",
+      "identifier": "ghcr.io/lycorp-jp/awx-mcp:1.0.0",
       "runtimeHint": "docker",
       "transport": { "type": "stdio" },
       "runtimeArguments": [
