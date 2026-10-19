@@ -4,6 +4,17 @@ import json
 import re
 from typing import Any
 
+
+def package_version() -> str:
+    """Installed awx-mcp distribution version, or ``"unknown"`` from a raw tree."""
+    try:
+        from importlib.metadata import version
+
+        return version("awx-mcp")
+    except Exception:  # noqa: BLE001 — metadata absent in an uninstalled checkout
+        return "unknown"
+
+
 # --- Secret masking -----------------------------------------------------------
 # Shared by the usage instrumentation and the API client so that bearer tokens /
 # token=... / password=... never reach a log sink, the usage JSONL, an exception

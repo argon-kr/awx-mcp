@@ -35,7 +35,7 @@ from logging.handlers import TimedRotatingFileHandler
 from typing import Any
 from urllib.parse import urlparse
 
-from .utils import mask_secrets
+from .utils import mask_secrets, package_version
 
 logger = logging.getLogger("ansible-mcp.usage")
 
@@ -206,12 +206,7 @@ def resolve_user_identifier() -> str:
 
 
 def _server_version() -> str:
-    try:
-        from importlib.metadata import version
-
-        return version("awx-mcp")
-    except Exception:  # noqa: BLE001
-        return "unknown"
+    return package_version()
 
 
 def _awx_host() -> str:

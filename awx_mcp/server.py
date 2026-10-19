@@ -26,6 +26,7 @@ from mcp.types import ToolAnnotations
 from .exceptions import AnsibleAPIError
 from .tls_config import resolve_ssl_verify
 from .usage import instrument_tool, make_timed_rotating_handler
+from .utils import package_version
 
 # AWX_MCP_TRANSPORT was removed: the running mode is now chosen by CLI flags
 # (`awx-mcp` = local stdio; `awx-mcp --serve [--sse]` = central network server).
@@ -101,10 +102,40 @@ async def _capture_request_headers(
         _request_headers.reset(token)
 
 
+# Sent to the client in the initialize result. Clients surface it to the model
+# before any tool call, so it carries the cross-cutting conventions that would
+# otherwise be rediscovered (or missed) one tool description at a time.
+SERVER_INSTRUCTIONS = """\
+awx-mcp exposes the AWX (Ansible automation controller) REST API v2.
+
+Conventions that apply to every tool:
+- list_* tools return {"count", "returned", "offset", "results"}. `count` is the
+  server-side total. When offset + returned < count, call again with
+  offset = offset + returned. The default page size is 20.
+- To turn a name into an ID, pass the list tool's name argument
+  (e.g. list_job_templates(template_name=...)) instead of paging everything.
+  It is a case-insensitive partial match, so check `count` for ambiguity.
+- Before changing or deleting something, get_* it first and confirm with the
+  user. Tools annotated destructive (delete_*, revoke_*, cancel_*) cannot be
+  undone.
+- launch_job / launch_workflow return immediately with a job ID. Poll get_job /
+  get_workflow_job until `status` is successful, failed, error or canceled,
+  then read get_job_stdout for the output.
+- Errors from AWX (401/403/404/400) are returned verbatim. A 403 means the
+  caller's AWX token lacks the role; do not retry it unchanged.
+"""
+
 # Initialize the MCP server. Unlike mcp 1.x FastMCP, MCPServer takes no
 # host/port/stateless_http: those are per-transport and are passed at the
 # sse_app()/streamable_http_app() call sites in __init__.main().
-mcp = MCPServer("ansible", middleware=[_capture_request_headers])
+mcp = MCPServer(
+    "awx-mcp",
+    title="AWX MCP Server",
+    version=package_version(),
+    instructions=SERVER_INSTRUCTIONS,
+    website_url="https://github.com/lycorp-jp/awx-mcp",
+    middleware=[_capture_request_headers],
+)
 
 # Configuration
 ANSIBLE_BASE_URL = os.environ.get("ANSIBLE_BASE_URL")
@@ -400,14 +431,31 @@ def _surface_tool_errors(func: Callable[..., Any]) -> Callable[..., Any]:
     return wrapper
 
 
+# Acronyms kept upper-case in human-readable tool titles.
+_TITLE_ACRONYMS = {"rbac": "RBAC", "scm": "SCM", "id": "ID", "ee": "EE"}
+
+
+def tool_title(name: str) -> str:
+    """Human-readable tool title: ``list_job_templates`` -> ``List job templates``.
+
+    Clients show ``title`` in their tool pickers and approval prompts; the
+    snake_case name stays the stable identifier the model calls.
+    """
+    words = [_TITLE_ACRONYMS.get(w, w) for w in name.split("_")]
+    title = " ".join(words)
+    return title[0].upper() + title[1:]
+
+
 def read_tool(func):
     """Register a pure read/GET MCP tool.
 
     Always registered (read tools are exposed even in read-only mode) and
-    annotated with ``readOnlyHint=True``.
+    annotated with ``readOnlyHint=True``. Every tool also carries
+    ``openWorldHint=True``: each one calls out to an external AWX instance.
     """
     return mcp.tool(
-        annotations=ToolAnnotations(readOnlyHint=True),
+        title=tool_title(func.__name__),
+        annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True),
         structured_output=False,
     )(_surface_tool_errors(instrument_tool(func)))
 
@@ -426,10 +474,12 @@ def write_tool(*, destructive: bool = False, idempotent: bool = False):
         if READ_ONLY:
             return func
         return mcp.tool(
+            title=tool_title(func.__name__),
             annotations=ToolAnnotations(
                 readOnlyHint=False,
                 destructiveHint=destructive,
                 idempotentHint=idempotent,
+                openWorldHint=True,
             ),
             structured_output=False,
         )(_surface_tool_errors(instrument_tool(_read_only_gated(func))))
@@ -452,10 +502,12 @@ def maybe_credential_management_tool(func):
     """
     if ENABLE_CREDENTIAL_MANAGEMENT and not READ_ONLY:
         return mcp.tool(
+            title=tool_title(func.__name__),
             annotations=ToolAnnotations(
                 readOnlyHint=False,
                 destructiveHint=True,
                 idempotentHint=False,
+                openWorldHint=True,
             ),
             structured_output=False,
         )(_surface_tool_errors(instrument_tool(_read_only_gated(func))))

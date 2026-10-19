@@ -43,7 +43,7 @@ from mcp.types import (
 
 from .tls_config import resolve_ssl_verify
 from .usage import record_proxy_tool_call
-from .utils import mask_secrets
+from .utils import mask_secrets, package_version
 
 logger = logging.getLogger("awx-mcp.proxy")
 
@@ -159,7 +159,7 @@ async def _run_proxy_async(url: str, token: str, ssl_verify: bool | str) -> None
             write_stream,
         ):
             async with ClientSession(read_stream, write_stream) as upstream:
-                await upstream.initialize()
+                init_result = await upstream.initialize()
                 logger.info("Connected to central awx-mcp at %s", url)
 
                 async def _list_tools(
@@ -189,8 +189,15 @@ async def _run_proxy_async(url: str, token: str, ssl_verify: bool | str) -> None
                 # mcp 2.x replaced the @server.list_tools()/@server.call_tool()
                 # decorators with these constructor hooks, so the handlers are
                 # defined above and wired in here.
+                # Mirror the central server's identity and instructions so the
+                # model sees the same usage conventions as in local mode.
+                upstream_info = init_result.server_info
                 proxy = Server(
                     "awx-mcp-proxy",
+                    version=package_version(),
+                    title=f"{upstream_info.title or upstream_info.name} (via proxy)",
+                    instructions=init_result.instructions,
+                    website_url=upstream_info.website_url,
                     on_list_tools=_list_tools,
                     on_call_tool=_call_tool,
                 )
