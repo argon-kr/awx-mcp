@@ -3,11 +3,14 @@
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com),
-and this project adheres to [Semantic Versioning](https://semver.org).
+and this project versions releases after the AWX release it is tested
+against (see [Versioning](#versioning)).
 
 ## [Unreleased]
 
 ### Added
+- `AWX_HTTP_TIMEOUT_READ` (read timeout per AWX request, default 90s) is now
+  documented.
 - Name search on every `list_*` tool over a named collection. Each takes an
   optional name argument that AWX applies server-side as a case-insensitive
   partial match, so a name resolves to an ID in one call instead of paging
@@ -67,8 +70,58 @@ and this project adheres to [Semantic Versioning](https://semver.org).
   `AWX_MCP_STATELESS_HTTP` in the environment-variable table, plus a warning
   that file logs on shared volumes are not multi-process safe (use per-pod
   paths or stdout collection for multi-replica `--serve`).
+- Typed exception hierarchy (`AnsibleAPIError`, `AnsibleAuthError`,
+  `AnsibleHTTPError`, `AnsibleValidationError`); error envelopes carry an
+  `error_type` discriminator.
+- HTTP request timeout (`connect=10s`, `read=90s`; override via
+  `AWX_HTTP_TIMEOUT_READ`) and retry policy (3 retries, exponential backoff with
+  jitter on 429/502/503/504, honors `Retry-After`, safe methods only).
+- Cumulative pagination budget that returns a partial-results envelope when
+  exceeded; zero-limit guard (`limit=0` returns `[]` without an HTTP call).
+- Best-effort token revocation on shutdown (`atexit`) for tokens minted via
+  username/password auth.
+- Verbose usage logging: `AWX_MCP_USAGE_LOG_FILE` records one JSON Lines
+  document per MCP tool call (`@timestamp`, `type`, `user`, `tool`, `params`,
+  `trace_id`, `server_version`, `success`, `latency_ms`, `transport`,
+  `awx_host`, `error{type,message}` on failure). Each entry carries a `type`
+  of `"tool"` (regular tool calls) or `"internal_api"` (the one-time
+  `/api/v2/me/` user-resolution call made at startup, recorded as
+  `tool: "me"` with the HTTP verb and path in separate `method`/`endpoint`
+  fields), so usage statistics can separate real tool usage from that overhead. `AWX_MCP_SERVER_LOG_FILE` /
+  `AWX_MCP_SERVER_LOG_FORMAT` / `AWX_MCP_LOG_BACKUP_COUNT` add a mirrored
+  server diagnostic log file with daily rotation. (#13)
+- Optional in-process inbound TLS for the `sse`/`streamable-http` transports:
+  `AWX_MCP_TLS_ENABLE`, `AWX_MCP_TLS_CERT`, `AWX_MCP_TLS_KEY`,
+  `AWX_MCP_TLS_KEY_PASSWORD`. Ignored for `stdio` (no network socket; a
+  warning is logged). (#15)
 
 ### Changed
+- Tool results are sent once. Every tool returns a JSON string; with SDK
+  defaults the same JSON was also sent a second time, escaped, as
+  `structuredContent.result` under an auto-generated `{"result": string}`
+  output schema. Tools now register with `structured_output=False`, and the
+  JSON is compact (no `indent=2`, non-ASCII kept as-is). The text content is
+  unchanged apart from whitespace.
+- Argument-validation failures (invalid JSON in `extra_vars`/`variables`/
+  `survey_spec`/`inputs`, unknown `job_type`, `verbosity`, `format`,
+  `scm_type`, `resource_type`) now fail the call with `isError: true` and the
+  same message, instead of returning `{"status": "error", ...}` as a
+  successful result.
+- Optional tool parameters are typed `T | None`, so their JSON Schema admits
+  the `null` default (`{"type": "string", "default": null}` was rejected by
+  strict clients). mypy is now a required CI check.
+- The server identifies itself as `awx-mcp` (was `ansible`) with a version,
+  title, website URL and `instructions` describing the conventions shared by
+  all tools (pagination envelope, name filters, launch-then-poll, 403s).
+  Every tool has a human-readable `title` and `openWorldHint: true`. The
+  `--remote` proxy relays the central server's instructions.
+- With username/password auth, the cached token's `/api/v2/ping/` check now
+  runs at most once every 5 minutes instead of before every tool call.
+- `get_job_stdout` / `get_project_update_stdout` (text formats) use the
+  regular request path, so AWX errors are typed and secret-masked like
+  every other call.
+- LICENSE now carries the verbatim Apache-2.0 text, so GitHub detects it as
+  `Apache-2.0` (it reported `Other`). The license terms are unchanged.
 - **BREAKING (tool output shape):** every `list_*` tool now returns a
   pagination envelope `{"count", "returned", "offset", "results"}` instead of
   a bare JSON array. `count` is the server-side total; when
@@ -108,6 +161,22 @@ and this project adheres to [Semantic Versioning](https://semver.org).
   `uvx --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp` instead of a
   manual clone + `uv run --directory` (local checkout remains documented for
   development).
+- `ANSIBLE_BASE_URL` is accepted with or without a trailing slash.
+- Concurrent token refresh is serialized with a lock to avoid minting duplicate
+  tokens.
+
+### Removed (BREAKING)
+- The `--transport` CLI flag and the `AWX_MCP_TRANSPORT` environment variable.
+  The previous "network transport + single static server token" server mode is
+  gone (it authenticated every user as one shared identity). **Migration:** run
+  `awx-mcp --serve` (add `--sse` for the sse transport) — note the auth model
+  changed: each user now supplies their own token. Setting `AWX_MCP_TRANSPORT`
+  now fails fast with a message pointing to `--serve`. The sse transport itself
+  is retained, reachable via `awx-mcp --serve --sse`.
+- Removed the `get_metrics` tool. Prometheus `/metrics/` exposition is a
+  scraper-oriented ~53KB payload that overflows the MCP result budget and
+  duplicates `get_dashboard_stats` / `get_ansible_version` for the useful
+  counts. Tool count: 146 → 145.
 
 ### Fixed
 - Tool error messages survive the upgrade to mcp >= 2.1. The SDK now masks any
@@ -124,15 +193,13 @@ and this project adheres to [Semantic Versioning](https://semver.org).
   ping failure may stay live on AWX until its server-side TTL).
 - Stale docstring in the usage module still referring to the removed
   `kind` field (now `type`).
-
-### Removed (BREAKING)
-- The `--transport` CLI flag and the `AWX_MCP_TRANSPORT` environment variable.
-  The previous "network transport + single static server token" server mode is
-  gone (it authenticated every user as one shared identity). **Migration:** run
-  `awx-mcp --serve` (add `--sse` for the sse transport) — note the auth model
-  changed: each user now supplies their own token. Setting `AWX_MCP_TRANSPORT`
-  now fails fast with a message pointing to `--serve`. The sse transport itself
-  is retained, reachable via `awx-mcp --serve --sse`.
+- `list_workflow_approval_templates` now applies filters before `limit`/
+  `offset` (previously could return incomplete lists).
+- Subpath AWX base URLs (e.g. `https://host/awx`) are now preserved end-to-end
+  instead of being collapsed to the host root.
+- `_validate_url` normalizes default ports so AWX `next` pagination links
+  with an explicit `:443` no longer break pagination.
+- Fixed a `resolve_tls_kwargs` type annotation (mypy clean).
 
 ### Security
 - The four credential/user write tools (`create_credential`, `update_credential`,
@@ -158,53 +225,7 @@ and this project adheres to [Semantic Versioning](https://semver.org).
   `password=`) before being surfaced in exceptions or the diagnostic log, not
   just the usage log.
 
-### Added
-- Typed exception hierarchy (`AnsibleAPIError`, `AnsibleAuthError`,
-  `AnsibleHTTPError`, `AnsibleValidationError`); error envelopes carry an
-  `error_type` discriminator.
-- HTTP request timeout (`connect=10s`, `read=90s`; override via
-  `AWX_HTTP_TIMEOUT_READ`) and retry policy (3 retries, exponential backoff with
-  jitter on 429/502/503/504, honors `Retry-After`, safe methods only).
-- Cumulative pagination budget that returns a partial-results envelope when
-  exceeded; zero-limit guard (`limit=0` returns `[]` without an HTTP call).
-- Best-effort token revocation on shutdown (`atexit`) for tokens minted via
-  username/password auth.
-- Verbose usage logging: `AWX_MCP_USAGE_LOG_FILE` records one JSON Lines
-  document per MCP tool call (`@timestamp`, `type`, `user`, `tool`, `params`,
-  `trace_id`, `server_version`, `success`, `latency_ms`, `transport`,
-  `awx_host`, `error{type,message}` on failure). Each entry carries a `type`
-  of `"tool"` (regular tool calls) or `"internal_api"` (the one-time
-  `/api/v2/me/` user-resolution call made at startup, recorded as
-  `tool: "me"` with the HTTP verb and path in separate `method`/`endpoint`
-  fields), so usage statistics can separate real tool usage from that overhead. `AWX_MCP_SERVER_LOG_FILE` /
-  `AWX_MCP_SERVER_LOG_FORMAT` / `AWX_MCP_LOG_BACKUP_COUNT` add a mirrored
-  server diagnostic log file with daily rotation. (#13)
-- Optional in-process inbound TLS for the `sse`/`streamable-http` transports:
-  `AWX_MCP_TLS_ENABLE`, `AWX_MCP_TLS_CERT`, `AWX_MCP_TLS_KEY`,
-  `AWX_MCP_TLS_KEY_PASSWORD`. Ignored for `stdio` (no network socket; a
-  warning is logged). (#15)
-
-### Changed
-- `ANSIBLE_BASE_URL` is accepted with or without a trailing slash.
-- Concurrent token refresh is serialized with a lock to avoid minting duplicate
-  tokens.
-
-### Removed
-- Removed the `get_metrics` tool. Prometheus `/metrics/` exposition is a
-  scraper-oriented ~53KB payload that overflows the MCP result budget and
-  duplicates `get_dashboard_stats` / `get_ansible_version` for the useful
-  counts. Tool count: 146 → 145.
-
-### Fixed
-- `list_workflow_approval_templates` now applies filters before `limit`/
-  `offset` (previously could return incomplete lists).
-- Subpath AWX base URLs (e.g. `https://host/awx`) are now preserved end-to-end
-  instead of being collapsed to the host root.
-- `_validate_url` normalizes default ports so AWX `next` pagination links
-  with an explicit `:443` no longer break pagination.
-- Fixed a `resolve_tls_kwargs` type annotation (mypy clean).
-
-## [24.6.1]
+## [24.6.1] - 2026-06-15
 
 ### Changed
 - Version scheme tracks the AWX upstream release
@@ -241,3 +262,16 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 - `AnsibleClient` with token caching and pagination support.
 - Configurable SSL verification.
 - Token and username/password authentication.
+
+## Versioning
+
+The version is the AWX release this server is tested against (`24.6.1` is
+tested against AWX 24.6.1, REST API v2). A release that changes only the
+server, against the same AWX release, appends a fourth number: `24.6.1.1`,
+`24.6.1.2`, … (valid PEP 440). Moving to a newer tested AWX release resets to
+that release's number. Read the section for a release before upgrading: a
+fourth-number release can still contain breaking changes to tool output,
+flagged **BREAKING** above.
+
+[Unreleased]: https://github.com/lycorp-jp/awx-mcp/compare/v24.6.1...HEAD
+[24.6.1]: https://github.com/lycorp-jp/awx-mcp/releases/tag/v24.6.1
