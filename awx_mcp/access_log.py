@@ -2,11 +2,12 @@
 
 """JSON access log for the central network server (``--serve``).
 
-Opt-in via ``AWX_MCP_ACCESS_LOG_FILE``: when set, every inbound HTTP request is
-appended to that file as one JSON object per line (JSON Lines), rotating at
-midnight (UTC) like the usage log. This is the transport-level access log —
-who connected, which HTTP endpoint, status, latency — complementing the usage
-log, which records per-tool calls with AWX user attribution.
+Central streamable-http and sse transports always emit every inbound HTTP
+request to stdout as one JSON object per line (JSON Lines).
+``AWX_MCP_ACCESS_LOG_FILE`` optionally adds a file sink, rotating at midnight
+(UTC) like the usage log. An unset path does not disable central stdout.
+This transport-level log records who connected, the HTTP endpoint, status,
+and latency, complementing per-tool usage logs with AWX user attribution.
 
 The middleware is a pure ASGI wrapper: it never modifies the request or
 response and swallows all of its own errors, so access logging can never break

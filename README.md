@@ -122,7 +122,7 @@ flowchart LR
 | `AWX_MCP_READ_ONLY=true` | Expose only read tools at server startup. AWX RBAC still applies. |
 | Name filters and pagination | Resolve named resources and limit the number of records returned to the client. |
 | Token caching | Reuse server-created OAuth2 tokens when authenticating locally with username and password. |
-| TLS and opt-in local logs | Protect network credentials and record tool calls with per-user attribution in central mode. |
+| TLS and optional file logs | Protect network credentials. Central mode emits per-user usage and HTTP access JSONL to stdout, with optional additional file logs. |
 
 141 tools are enabled by default. 4 credential/user write tools require explicit opt-in. Other tools can still return sensitive inventory variables, job output, or account data. Review [Credential Management](#credential-management-opt-in) and [security guidance](docs/security.md) before enabling writes.
 
@@ -250,16 +250,16 @@ The server automatically creates and caches an OAuth2 token on your behalf.
 | `AWX_MCP_TLS_KEY` | unset | Path to the server's TLS private key (PEM). Required when TLS is enabled. |
 | `AWX_MCP_TLS_KEY_PASSWORD` | unset | Password for the private key, if it is encrypted. Optional. |
 | `AWX_MCP_STATELESS_HTTP` | `false` | Stateless streamable-http mode: each request is self-contained, with no per-session state held in the process. Needed to run multiple `--serve` replicas behind a plain round-robin load balancer (otherwise a session created on one replica 404s when routed to another). Default off preserves stateful session behavior for single-instance / sse setups. |
-| `AWX_MCP_USAGE_LOG_FILE` | unset | Path to a JSON Lines usage log; every MCP tool call is recorded as one JSON document (`@timestamp`, `type`, `user`, `tool`, `params` (redacted call arguments), `trace_id`, `server_version`, `success`, `latency_ms`, `auth_mode`, `transport`, `awx_host`, `error{type,message}` on failure). Works in every mode, including the `--remote` proxy. Unset disables instrumentation. See [Verbose usage logging](docs/security.md#verbose-usage-logging). |
+| `AWX_MCP_USAGE_LOG_FILE` | unset | Optional rotated JSON Lines usage log file in every mode, including the `--remote` proxy. Each MCP tool call records one JSON document (`@timestamp`, `type`, `user`, `tool`, `params` (redacted call arguments), `trace_id`, `server_version`, `success`, `latency_ms`, `auth_mode`, `transport`, `awx_host`, `error{type,message}` on failure). In central `--serve` mode (`streamable-http` or `sse`), tool and internal API usage records always go to stdout, and this path adds a file sink. Unset disables usage logging only in local stdio and proxy mode. See [Verbose usage logging](docs/security.md#verbose-usage-logging). |
 | `AWX_MCP_USAGE_USER` | unset | Optional label used as the `user` field in the proxy's local usage log (proxy mode has no AWX access to resolve a username; defaults to `local`). |
-| `AWX_MCP_ACCESS_LOG_FILE` | unset | Path to a JSON Lines access log for the `--serve` server; every inbound HTTP request is recorded (client IP, method, path, status, latency). Rotates at midnight (UTC), same as the usage log. `--serve` mode only - stdio and the `--remote` proxy have no HTTP socket. |
+| `AWX_MCP_ACCESS_LOG_FILE` | unset | Optional additional JSON Lines access log file for the `--serve` server. Every inbound HTTP request is recorded to stdout even when this path is unset (client IP, method, path, status, latency). The file rotates at midnight (UTC), same as the usage log. `--serve` mode only - local stdio and the `--remote` proxy have no inbound HTTP socket. |
 | `AWX_MCP_SERVER_LOG_FILE` | unset | Path to a server diagnostic log file, mirroring the existing stderr diagnostics and errors. Unset means stderr only, no file. |
 | `AWX_MCP_SERVER_LOG_FORMAT` | `plain` | Server diagnostic log format: `plain` or `json`. |
 | `AWX_MCP_LOG_BACKUP_COUNT` | `7` | Number of rotated log files to retain. Both log files rotate daily at midnight (UTC) with a date suffix. |
 
 ### TLS / certificate verification
 
-TLS verification stays enabled by default. Trust a private CA with `ANSIBLE_CA_BUNDLE`. In `--remote` mode these verification settings apply to the central server, not AWX. Network-exposed central servers need TLS and restricted access. Usage/access logs are opt-in, diagnostic logs use stderr by default, and stdout is reserved for MCP messages. See [TLS, log fields, redaction limits, and replica safety](docs/security.md).
+TLS verification stays enabled by default. Trust a private CA with `ANSIBLE_CA_BUNDLE`. In `--remote` mode these verification settings apply to the central server, not AWX. Network-exposed central servers need TLS and restricted access. Central `--serve` mode (`streamable-http` or `sse`) always emits usage/access JSONL to stdout. File settings add rotated file logs without disabling stdout. Local stdio and the `--remote` proxy reserve stdout for MCP messages and enable usage file logging only when configured. Diagnostic logs use stderr by default. Container or platform collectors can collect stdout/stderr. See [TLS, log fields, redaction limits, and replica safety](docs/security.md).
 
 ---
 

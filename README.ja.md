@@ -122,7 +122,7 @@ flowchart LR
 | `AWX_MCP_READ_ONLY=true` | 起動時に読み取りツールだけを公開します。AWX RBAC も適用されます。 |
 | 名前フィルターとページネーション | 名前でリソースを検索し、クライアントに返すレコード数を制限できます。 |
 | トークンキャッシュ | ローカルでユーザー名とパスワードを使う場合、サーバーが生成した OAuth2 トークンを再利用します。 |
-| TLS と opt-in ローカルログ | 通信中の認証情報を保護し、中央サーバーでは呼び出し元ごとのツール実行を記録できます。 |
+| TLS と任意のファイルログ | 通信中の認証情報を保護します。中央サーバーは呼び出し元ごとの利用ログと HTTP アクセス JSONL を stdout に出力し、ファイルログも追加できます。 |
 
 デフォルトでは 141 ツールが有効です。認証情報/ユーザー書き込みツール 4 個は明示的な opt-in が必要です。その他のツールも機密のインベントリ変数、ジョブ出力、アカウント情報を返す場合があります。書き込みの有効化前に [Credential Management](#credential-management-opt-in) と [セキュリティガイド](docs/security.ja.md) を確認してください。
 
@@ -250,16 +250,16 @@ AWX UI で事前に作成したトークンを使います。AWX の方針によ
 | `AWX_MCP_TLS_KEY` | 未設定 | サーバー TLS 秘密鍵（PEM）へのパス。TLS が有効な場合に必須です。 |
 | `AWX_MCP_TLS_KEY_PASSWORD` | 未設定 | 秘密鍵が暗号化されている場合のパスワード。任意。 |
 | `AWX_MCP_STATELESS_HTTP` | `false` | ステートレス streamable-http モード。各リクエストが自己完結し、プロセスにセッションごとの状態を保持しません。単純なラウンドロビン型ロードバランサーの背後で複数の `--serve` レプリカを運用する場合に必要です（そうしないと、あるレプリカで作成されたセッションが別のレプリカにルーティングされた際に 404 になります）。デフォルト（off）では、単一インスタンス / sse 構成のステートフルなセッション動作がそのまま維持されます。 |
-| `AWX_MCP_USAGE_LOG_FILE` | 未設定 | JSON Lines 形式の利用ログファイルへのパス。MCP ツール呼び出しごとに 1 件の JSON ドキュメント（`@timestamp`、`type`、`user`、`tool`、`params`（マスキングされた呼び出し引数）、`trace_id`、`server_version`、`success`、`latency_ms`、`auth_mode`、`transport`、`awx_host`、失敗時の `error{type,message}`）が記録されます。`--remote` プロキシを含むすべてのモードで動作します。未設定の場合は計装が無効になります。[詳細利用ログ](docs/security.ja.md#詳細利用ログ) を参照。 |
+| `AWX_MCP_USAGE_LOG_FILE` | 未設定 | `--remote` プロキシを含むすべてのモードで任意に設定する、ローテーション付き JSON Lines 利用ログファイルへのパス。MCP ツール呼び出しごとに 1 件の JSON ドキュメント（`@timestamp`、`type`、`user`、`tool`、`params`（マスキングされた呼び出し引数）、`trace_id`、`server_version`、`success`、`latency_ms`、`auth_mode`、`transport`、`awx_host`、失敗時の `error{type,message}`）が記録されます。中央 `--serve` モード（`streamable-http` または `sse`）ではツールと内部 API の利用記録が常に stdout に出力され、このパスはファイル出力を追加します。未設定で利用ログが無効になるのは、ローカル stdio とプロキシモードだけです。[詳細利用ログ](docs/security.ja.md#詳細利用ログ) を参照してください。 |
 | `AWX_MCP_USAGE_USER` | 未設定 | プロキシのローカル利用ログで `user` フィールドに使うラベル（プロキシモードにはユーザー名を解決する AWX アクセスがないため、デフォルトは `local`）。 |
-| `AWX_MCP_ACCESS_LOG_FILE` | 未設定 | `--serve` サーバー用の JSON Lines アクセスログファイルへのパス。受信したすべての HTTP リクエストが記録されます（クライアント IP、メソッド、パス、ステータス、レイテンシ）。利用ログと同様に、毎日深夜（UTC）にローテーションします。`--serve` モードでのみ有効です - stdio と `--remote` プロキシには HTTP ソケットがありません。 |
+| `AWX_MCP_ACCESS_LOG_FILE` | 未設定 | `--serve` サーバーで任意に追加する JSON Lines アクセスログファイルへのパス。このパスが未設定でも、受信したすべての HTTP リクエストは stdout に記録されます（クライアント IP、メソッド、パス、ステータス、レイテンシ）。ファイルは利用ログと同様に、毎日深夜（UTC）にローテーションします。`--serve` モードでのみ有効で、ローカル stdio と `--remote` プロキシにはインバウンド HTTP ソケットがありません。 |
 | `AWX_MCP_SERVER_LOG_FILE` | 未設定 | サーバー診断ログファイルへのパス。既存の stderr 診断・エラー出力をそのままファイルにも記録します。未設定の場合は stderr のみで、ファイルは作成されません。 |
 | `AWX_MCP_SERVER_LOG_FORMAT` | `plain` | サーバー診断ログの形式: `plain` または `json`。 |
 | `AWX_MCP_LOG_BACKUP_COUNT` | `7` | ローテーションしたログファイルの保持数。両方のログファイルは毎日 UTC 深夜 0 時に日付サフィックス付きでローテーションされます。 |
 
 ### TLS / 証明書検証
 
-TLS 証明書検証は既定で有効です。プライベート CA は `ANSIBLE_CA_BUNDLE` で信頼させてください。`--remote` ではこの検証設定は AWX ではなく中央サーバーに適用されます。ネットワークに公開する中央サーバーには TLS とアクセス制限が必要です。利用/アクセスログは opt-in、診断ログは既定で stderr に出力します。stdout は MCP メッセージ専用です。[TLS、ログフィールド、マスキングの限界、replica の注意事項](docs/security.ja.md) を参照してください。
+TLS 証明書検証は既定で有効です。プライベート CA は `ANSIBLE_CA_BUNDLE` で信頼させてください。`--remote` ではこの検証設定は AWX ではなく中央サーバーに適用されます。ネットワークに公開する中央サーバーには TLS とアクセス制限が必要です。中央 `--serve` モード（`streamable-http` または `sse`）は利用/アクセス JSONL を常に stdout に出力します。ファイル設定はローテーション付きのファイル出力を追加し、stdout 出力を無効にはしません。ローカル stdio と `--remote` プロキシでは stdout を MCP メッセージ専用に使い、利用ファイルログはパスを設定した場合だけ記録します。診断ログは既定で stderr に出力します。コンテナーやプラットフォームのログ収集基盤は stdout/stderr を収集できます。[TLS、ログフィールド、マスキングの限界、replica の注意事項](docs/security.ja.md) を参照してください。
 
 ---
 

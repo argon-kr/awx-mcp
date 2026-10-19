@@ -1,19 +1,20 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Ansible MCP Server - file-based usage instrumentation.
+Ansible MCP Server - JSON Lines usage instrumentation.
 
-Wraps every registered MCP tool with a fire-and-forget usage recorder that
-appends one JSON object per line (JSON Lines) to a local file per call, so an
-external collector (filebeat/fluentd/...) can scrape it for statistics. The
-instrumentation is strictly best-effort: it never changes a tool's return
-value, never raises into the tool call path, and stays completely silent (fully
-disabled, a thin pass-through) when ``AWX_MCP_USAGE_LOG_FILE`` is unset.
+Wraps every registered MCP tool with a best-effort usage recorder that never
+changes a tool's return value or raises into the tool call path. Central
+``--serve`` transports (streamable-http and sse) always emit tool and internal
+API usage JSON Lines to stdout, including redacted tool arguments. Setting
+``AWX_MCP_USAGE_LOG_FILE`` adds a rotated file sink without disabling stdout.
 
-No network delivery happens here — the file is the only sink. Writes go through
-a :class:`logging.handlers.TimedRotatingFileHandler`, which is thread-safe, so
-no background queue/worker is needed. The file rotates at midnight (UTC) with a
-date-suffixed backup, keeping ``AWX_MCP_LOG_BACKUP_COUNT`` backups (default 7).
+Local stdio and ``--remote`` proxy mode reserve stdout for the MCP protocol.
+Their usage file logging is opt-in and disabled when the file path is unset.
+There is no built-in remote log exporter, but external collectors can collect
+configured files or central stdout. File writes use the thread-safe
+:class:`logging.handlers.TimedRotatingFileHandler`, rotating at midnight (UTC)
+with a date suffix and ``AWX_MCP_LOG_BACKUP_COUNT`` backups (default 7).
 """
 
 from __future__ import annotations

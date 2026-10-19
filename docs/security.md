@@ -27,13 +27,15 @@ uvx --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp --serve --host 127.0
 
 ## Verbose usage logging
 
-Usage logging is opt-in: set `AWX_MCP_USAGE_LOG_FILE` to a writable path to start recording one JSON document per tool call in JSON Lines: https://jsonlines.org/ format, designed to be picked up by external log collectors (Filebeat, Fluentd, etc.) for later collection and statistics. Logs are never written to stdout - the MCP stdio transport uses stdout for protocol messages, so writing logs there would corrupt the protocol stream. No log data is sent over the network by the server itself; it only writes to the local file(s) you configure.
+In central `--serve` mode (`streamable-http` or `sse`), tool and internal API usage records and HTTP access records are always emitted to stdout in JSON Lines format: https://jsonlines.org/. This includes tool-call arguments after redaction. `AWX_MCP_USAGE_LOG_FILE` and `AWX_MCP_ACCESS_LOG_FILE` optionally add rotated file sinks. Leaving these paths unset does not disable central stdout logging.
+
+In local stdio and `--remote` proxy mode, stdout is reserved for MCP protocol messages. Usage file logging is opt-in through a writable `AWX_MCP_USAGE_LOG_FILE` path. Neither mode runs an inbound HTTP socket, so HTTP access logging does not apply. The server has no built-in remote log exporter, but external collectors such as Filebeat or Fluentd and container/platform logging can collect its configured files or stdout/stderr.
 
 Every log line carries a `type` field so records can be split by kind: `"tool"` (regular MCP tool calls), `"internal_api"` (the `/api/v2/me/` user-resolution call the server makes, recorded with `tool: "me"` and the HTTP verb and path in separate `method`/`endpoint` fields), `"access"` (the HTTP access log), and `"diagnostic"` (the server diagnostic log). The `type` field, together with the shared `@timestamp` timestamp field, is consistent across all four record shapes so a single log index can be filtered by type. Tool-call records also include `params` - the call's arguments with secret-named keys (password, token, key, `inputs`, …) and inline `token=`/`password=`/`Bearer` values redacted.
 
 The `auth_mode` field is `static` (local) or `passthrough` (`--serve`). The `transport` field is one of `stdio`, `streamable-http`, `sse`, or `proxy`. In the central server the `user` field is the AWX account behind each request's token (per-user attribution, resolved once per token and cached; the raw token and its hash are never logged). In the `--remote` proxy's own local log, `transport` is `proxy`, `user` is `AWX_MCP_USAGE_USER` (or `local`), and `awx_host` is the central server's host.
 
-Give each replica its own file path. If usage/access file logging is disabled, those records are not emitted elsewhere. Only diagnostic output continues on stderr, which your platform can collect.
+When using file logs, give each replica its own file path. Central usage/access JSONL continues on stdout whether or not file logging is configured. Diagnostic output is separate and uses stderr by default. Apply access and retention policies to configured files and to any container/platform collection of stdout/stderr.
 
 ## Sensitive data and log limits
 

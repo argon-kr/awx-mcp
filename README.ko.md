@@ -122,7 +122,7 @@ flowchart LR
 | `AWX_MCP_READ_ONLY=true` | 서버 시작 시 읽기 도구만 노출합니다. AWX RBAC도 그대로 적용됩니다. |
 | 이름 필터와 페이지네이션 | 이름으로 리소스를 찾고 클라이언트에 반환할 레코드 수를 제한할 수 있습니다. |
 | 토큰 캐시 | 로컬에서 사용자명과 비밀번호로 인증하면 서버가 생성한 OAuth2 토큰을 재사용합니다. |
-| TLS와 opt-in 로컬 로그 | 네트워크로 전달하는 자격 증명을 보호하고, 중앙 서버에서는 호출자별 도구 실행 기록을 남길 수 있습니다. |
+| TLS와 선택적 파일 로그 | 네트워크로 전달하는 자격 증명을 보호합니다. 중앙 서버는 호출자별 사용 로그와 HTTP 접속 JSONL을 stdout에 출력하며, 파일 로그를 추가로 설정할 수 있습니다. |
 
 기본으로 141개 도구가 활성화됩니다. 자격 증명/사용자 쓰기 도구 4개는 명시적인 opt-in이 필요합니다. 다른 도구도 민감한 인벤토리 변수, 작업 출력, 계정 정보를 반환할 수 있습니다. 쓰기 기능을 켜기 전에 [Credential Management](#credential-management-opt-in)와 [보안 안내](docs/security.ko.md)를 확인하세요.
 
@@ -250,16 +250,16 @@ AWX UI에서 미리 생성한 토큰을 사용합니다. 토큰은 AWX 정책에
 | `AWX_MCP_TLS_KEY` | 미설정 | 서버 TLS 개인 키(PEM) 경로. TLS가 활성화되면 필수입니다. |
 | `AWX_MCP_TLS_KEY_PASSWORD` | 미설정 | 개인 키가 암호화된 경우의 비밀번호. 선택 사항. |
 | `AWX_MCP_STATELESS_HTTP` | `false` | 상태 비저장(stateless) streamable-http 모드. 각 요청이 그 자체로 완결되어 프로세스에 세션별 상태를 유지하지 않습니다. 단순 라운드로빈 로드밸런서 뒤에 여러 `--serve` replica를 운영할 때 필요합니다(그렇지 않으면 한 replica에서 만든 세션이 다른 replica로 라우팅될 때 404가 발생합니다). 기본값(off)은 단일 인스턴스/sse 구성의 상태 유지(stateful) 세션 동작을 그대로 유지합니다. |
-| `AWX_MCP_USAGE_LOG_FILE` | 미설정 | JSON Lines 형식의 사용 로그 파일 경로. MCP 도구 호출마다 하나의 JSON 문서(`@timestamp`, `type`, `user`, `tool`, `params`(마스킹된 호출 인자), `trace_id`, `server_version`, `success`, `latency_ms`, `auth_mode`, `transport`, `awx_host`, 실패 시 `error{type,message}`)가 기록됩니다. `--remote` 프록시를 포함해 모든 모드에서 동작합니다. 미설정 시 계측이 비활성화됩니다. [상세 사용 로그](docs/security.ko.md#상세-사용-로그) 섹션 참조. |
+| `AWX_MCP_USAGE_LOG_FILE` | 미설정 | `--remote` 프록시를 포함한 모든 모드에서 선택적으로 설정하는 JSON Lines 사용 로그 파일 경로이며, 파일은 주기적으로 회전합니다. MCP 도구 호출마다 하나의 JSON 문서(`@timestamp`, `type`, `user`, `tool`, `params`(마스킹된 호출 인자), `trace_id`, `server_version`, `success`, `latency_ms`, `auth_mode`, `transport`, `awx_host`, 실패 시 `error{type,message}`)가 기록됩니다. 중앙 `--serve` 모드(`streamable-http` 또는 `sse`)에서는 도구와 내부 API 사용 기록을 항상 stdout에 출력하며, 이 경로는 파일 출력을 추가합니다. 경로 미설정으로 사용 로그가 비활성화되는 범위는 로컬 stdio와 프록시 모드뿐입니다. [상세 사용 로그](docs/security.ko.md#상세-사용-로그)를 참고하세요. |
 | `AWX_MCP_USAGE_USER` | 미설정 | 프록시의 로컬 사용 로그에서 `user` 필드로 사용할 레이블(선택 사항). 프록시 모드는 사용자명을 조회할 AWX 접근 권한이 없으므로 기본값은 `local`입니다. |
-| `AWX_MCP_ACCESS_LOG_FILE` | 미설정 | `--serve` 서버용 JSON Lines 접속(access) 로그 파일 경로. 들어오는 모든 HTTP 요청이 기록됩니다(클라이언트 IP, 메서드, 경로, 상태 코드, 지연시간). 사용 로그와 마찬가지로 매일 자정(UTC)에 회전합니다. `--serve` 모드에서만 동작합니다 - stdio와 `--remote` 프록시에는 HTTP 소켓이 없습니다. |
+| `AWX_MCP_ACCESS_LOG_FILE` | 미설정 | `--serve` 서버에서 선택적으로 추가하는 JSON Lines 접속(access) 로그 파일 경로입니다. 이 경로를 설정하지 않아도 들어오는 모든 HTTP 요청은 stdout에 기록됩니다(클라이언트 IP, 메서드, 경로, 상태 코드, 지연시간). 파일은 사용 로그와 마찬가지로 매일 자정(UTC)에 회전합니다. `--serve` 모드에서만 동작하며, 로컬 stdio와 `--remote` 프록시에는 인바운드 HTTP 소켓이 없습니다. |
 | `AWX_MCP_SERVER_LOG_FILE` | 미설정 | 서버 진단 로그 파일 경로. 기존 stderr 진단/에러 출력을 그대로 파일에도 기록합니다. 미설정 시 stderr에만 출력되고 파일은 생성되지 않습니다. |
 | `AWX_MCP_SERVER_LOG_FORMAT` | `plain` | 서버 진단 로그 형식: `plain` 또는 `json`. |
 | `AWX_MCP_LOG_BACKUP_COUNT` | `7` | 로테이션된 로그 파일 보관 개수. 두 로그 파일 모두 매일 자정(UTC)에 날짜 접미사를 붙여 로테이션됩니다. |
 
 ### TLS / 인증서 검증
 
-TLS 인증서 검증은 기본적으로 활성화됩니다. 사설 CA는 `ANSIBLE_CA_BUNDLE`로 신뢰하도록 설정하세요. `--remote`에서는 이 검증 설정이 AWX가 아닌 중앙 서버에 적용됩니다. 네트워크에 노출하는 중앙 서버에는 TLS와 접근 제한이 필요합니다. 사용/접속 로그는 opt-in이며 진단 로그는 기본적으로 stderr에 출력됩니다. stdout은 MCP 메시지 전용입니다. [TLS, 로그 필드, 마스킹 한계, replica 주의사항](docs/security.ko.md)을 참고하세요.
+TLS 인증서 검증은 기본적으로 활성화됩니다. 사설 CA는 `ANSIBLE_CA_BUNDLE`로 신뢰하도록 설정하세요. `--remote`에서는 이 검증 설정이 AWX가 아닌 중앙 서버에 적용됩니다. 네트워크에 노출하는 중앙 서버에는 TLS와 접근 제한이 필요합니다. 중앙 `--serve` 모드(`streamable-http` 또는 `sse`)는 사용/접속 JSONL을 항상 stdout에 출력합니다. 파일 설정은 주기적으로 회전하는 파일 출력을 추가하며 stdout 출력을 끄지 않습니다. 로컬 stdio와 `--remote` 프록시에서는 stdout을 MCP 메시지 전용으로 사용하고, 사용 파일 로그는 경로를 설정한 경우에만 기록합니다. 진단 로그는 기본적으로 stderr에 출력됩니다. 컨테이너나 플랫폼의 로그 수집기는 stdout/stderr를 수집할 수 있습니다. [TLS, 로그 필드, 마스킹 한계, replica 주의사항](docs/security.ko.md)을 참고하세요.
 
 ---
 

@@ -27,13 +27,15 @@ uvx --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp --serve --host 127.0
 
 ## 詳細利用ログ
 
-利用ログは opt-in 方式です。`AWX_MCP_USAGE_LOG_FILE` に書き込み可能なパスを設定すると、ツール呼び出しごとに 1 件の JSON ドキュメントを JSON Lines: https://jsonlines.org/ 形式で記録し始めます。この形式は Filebeat や Fluentd などの外部ログ収集基盤が後で収集・集計しやすいように設計されています。ログが stdout に出力されることはありません - MCP stdio トランスポートはプロトコルメッセージの送受信に stdout を使用するため、ここにログを書き込むとプロトコルストリームが破損します。サーバー自体がログデータをネットワーク経由で送信することもなく、設定したローカルファイルにのみ書き込みます。
+中央 `--serve` モード（`streamable-http` または `sse`）では、ツールと内部 API の利用記録および HTTP アクセス記録が常に stdout に JSON Lines 形式で出力されます: https://jsonlines.org/。これにはマスキング後のツール呼び出し引数も含まれます。`AWX_MCP_USAGE_LOG_FILE` と `AWX_MCP_ACCESS_LOG_FILE` は、ローテーション付きのファイル出力を任意に追加します。これらのパスが未設定でも、中央サーバーの stdout ログは無効になりません。
+
+ローカル stdio と `--remote` プロキシモードでは、stdout は MCP プロトコルメッセージ専用です。利用ファイルログは、書き込み可能な `AWX_MCP_USAGE_LOG_FILE` パスを設定した場合だけ記録します。どちらのモードにもインバウンド HTTP ソケットがないため、HTTP アクセスログは適用されません。サーバーにはリモートログ exporter が組み込まれていませんが、Filebeat や Fluentd などの外部収集基盤やコンテナー/プラットフォームのログ収集機能は、設定されたファイルや stdout/stderr を収集できます。
 
 すべてのログ行には `type` フィールドがあり、種類ごとに分離できます: `"tool"`（通常の MCP ツール呼び出し）、`"internal_api"`（サーバーが呼び出す `/api/v2/me/` ユーザー解決リクエスト。`tool: "me"` として記録し、HTTP メソッドとパスは別の `method`/`endpoint` フィールドに記録）、`"access"`（HTTP アクセスログ）、`"diagnostic"`（サーバー診断ログ）。`type` フィールドと共通の `@timestamp` タイムスタンプフィールドは 4 種類のレコードで一貫しているため、単一のログインデックスを type でフィルタできます。ツール呼び出しレコードには `params`（呼び出し引数）も含まれ、秘密を示すキー（password、token、key、`inputs` など）や文字列内の `token=`/`password=`/`Bearer` の値はマスキングされます。
 
 `auth_mode` フィールドは `static`（ローカル）または `passthrough`（`--serve`）です。`transport` フィールドは `stdio`、`streamable-http`、`sse`、`proxy` のいずれかです。中央サーバーでは、`user` フィールドは各リクエストのトークンに紐づく AWX アカウントです（ユーザーごとの帰属。トークンごとに一度だけ解決してキャッシュされ、生のトークンやそのハッシュがログに残ることはありません）。`--remote` プロキシ自身のローカルログでは、`transport` は `proxy`、`user` は `AWX_MCP_USAGE_USER`（未設定なら `local`）、`awx_host` は中央サーバーのホストになります。
 
-各 replica に固有のファイルパスを割り当ててください。利用/アクセスのファイルログを無効にしても、その記録が別の出力に送られるわけではありません。診断ログだけは stderr に引き続き出力され、プラットフォーム側で収集できます。
+ファイルログを使う場合は、各 replica に固有のファイルパスを割り当ててください。中央サーバーの利用/アクセス JSONL は、ファイルログの設定にかかわらず stdout に出力され続けます。診断ログは別系統で、既定では stderr に出力されます。設定されたファイルと、コンテナー/プラットフォームが収集する stdout/stderr の両方にアクセス制御と保持ポリシーを適用してください。
 
 ## 機密データとログの限界
 
