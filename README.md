@@ -58,6 +58,7 @@ The GIF shows actual MCP `list_jobs(status="failed")` and `get_job_stdout(job_id
 - [Credential Management (opt-in)](#credential-management-opt-in)
 - [MCP Client Integration](#mcp-client-integration)
 - [Usage Examples](#usage-examples)
+- [Resources and runbook prompts](#resources-and-runbook-prompts)
 - [Tools](#tools)
 - [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
@@ -452,6 +453,37 @@ Send natural language requests to your MCP client (Claude, etc.) and the server 
 ```
 
 ---
+
+## Resources and runbook prompts
+
+Local stdio, central HTTP/SSE, and the stdio proxy expose the same read resources and runbook prompts. Toolset selection also filters these capabilities. Read-only mode keeps them available. Central resource reads use each request's caller token and AWX permissions, with no fallback to server credentials.
+
+Discover the five URI templates through `resources/templates/list`, then substitute an ID obtained from a read tool. `resources/list` is empty because resources are addressed by ID.
+
+| URI template | Content | Required toolset |
+|---|---|---|
+| `awx://jobs/{id}` | Job details, `application/json` | `jobs` |
+| `awx://jobs/{id}/stdout` | Job output, `text/plain` | `jobs` |
+| `awx://inventories/{id}` | Inventory details, `application/json` | `inventories` |
+| `awx://inventory-sources/{id}` | Inventory source details, `application/json` | `inventories` |
+| `awx://projects/{id}` | Project details, `application/json` | `projects` |
+
+Use `prompts/list` and `prompts/get` for these runbooks. Each appears only when all its required toolsets are enabled. Rendering a prompt performs no AWX calls. Its instructions guide read checks and require explicit user confirmation before any write.
+
+| Prompt | Required argument | Read workflow | Required toolsets |
+|---|---|---|---|
+| `failed_job_triage` | `job_id` | Inspect status, stdout, events and host summaries | `jobs` |
+| `pre_change_inventory_check` | `inventory_id` | Verify inventory, hosts, groups and source health | `inventories`, `hosts`, `groups` |
+| `project_sync_review` | `project_id` | Review SCM revision, sync history, logs and playbooks | `projects` |
+
+With an initialized Python MCP `ClientSession`:
+
+```python
+await session.read_resource("awx://jobs/42/stdout")
+await session.get_prompt("failed_job_triage", {"job_id": "42"})
+```
+
+The proxy preserves upstream pagination, resource content and metadata. Resource subscriptions and change notifications are not relayed.
 
 ## Tools
 

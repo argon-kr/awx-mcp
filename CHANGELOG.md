@@ -9,6 +9,10 @@ against (see [Versioning](#versioning)).
 ## [Unreleased]
 
 ### Added
+- Five read-only MCP resource templates and three operational runbook prompts,
+  filtered by enabled toolsets. Local and central startup register them explicitly,
+  and the authenticated proxy relays resources and prompts with pagination and
+  content metadata preserved.
 - Local release preparation and tag-triggered workflows for GitHub Releases,
   multi-platform GHCR images, and MCP Registry publication, with manifest and
   installation checks. No release, image, or Registry entry has been published

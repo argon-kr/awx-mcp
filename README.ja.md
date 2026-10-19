@@ -58,6 +58,7 @@ GIF はローカルの fake AWX fixture に対する実際の MCP `list_jobs(sta
 - [Credential Management (opt-in)](#credential-management-opt-in)
 - [MCPクライアント連携](#mcpクライアント連携)
 - [使用例](#使用例)
+- [Resource と runbook prompt](#resource-と-runbook-prompt)
 - [ツール一覧](#ツール一覧)
 - [トラブルシューティング](#トラブルシューティング)
 - [コントリビューション](#コントリビューション)
@@ -452,6 +453,37 @@ MCP クライアント（Claude など）に自然言語でリクエストする
 ```
 
 ---
+
+## Resource と runbook prompt
+
+ローカル stdio、中央 HTTP/SSE サーバー、stdio proxy は同じ読み取り専用 resource と runbook prompt を公開します。Toolset の選択はこれらの capability にも適用されます。読み取り専用モードでも利用できます。中央サーバーは各リクエストの呼び出し元トークンと AWX 権限で resource を読み取り、サーバーの認証情報には切り替えません。
+
+`resources/templates/list` で 5 つの URI template を確認し、読み取りツールで取得した ID を指定してください。各 resource は ID で指定するため、`resources/list` は空の一覧を返します。
+
+| URI template | 内容 | 必要な toolset |
+|---|---|---|
+| `awx://jobs/{id}` | Job の詳細、`application/json` | `jobs` |
+| `awx://jobs/{id}/stdout` | Job の実行出力、`text/plain` | `jobs` |
+| `awx://inventories/{id}` | Inventory の詳細、`application/json` | `inventories` |
+| `awx://inventory-sources/{id}` | Inventory source の詳細、`application/json` | `inventories` |
+| `awx://projects/{id}` | Project の詳細、`application/json` | `projects` |
+
+Runbook は `prompts/list` と `prompts/get` で取得します。必要な toolset がすべて有効な場合にのみ公開されます。Prompt の生成時に AWX は呼び出されません。生成される指示は読み取りの確認手順を案内し、書き込みの前にユーザーの明示的な確認を求めます。
+
+| Prompt | 必須引数 | 読み取りの確認手順 | 必要な toolset |
+|---|---|---|---|
+| `failed_job_triage` | `job_id` | 状態、stdout、event、host ごとの結果を確認 | `jobs` |
+| `pre_change_inventory_check` | `inventory_id` | Inventory、host、group、source の状態を確認 | `inventories`, `hosts`, `groups` |
+| `project_sync_review` | `project_id` | SCM revision、sync 履歴、ログ、playbook を確認 | `projects` |
+
+初期化済みの Python MCP `ClientSession` では次のように呼び出します。
+
+```python
+await session.read_resource("awx://jobs/42/stdout")
+await session.get_prompt("failed_job_triage", {"job_id": "42"})
+```
+
+Proxy は upstream の pagination、resource の内容と metadata を保持します。Resource の購読と変更通知は中継しません。
 
 ## ツール一覧
 

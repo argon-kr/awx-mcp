@@ -33,10 +33,18 @@ from mcp.server.stdio import stdio_server
 from mcp.types import (
     CallToolRequestParams,
     CallToolResult,
+    GetPromptRequestParams,
+    GetPromptResult,
+    InitializeResult,
     InputRequiredResult,
     InputResponses,
+    ListPromptsResult,
+    ListResourcesResult,
+    ListResourceTemplatesResult,
     ListToolsResult,
     PaginatedRequestParams,
+    ReadResourceRequestParams,
+    ReadResourceResult,
     TextContent,
 )
 
@@ -137,6 +145,97 @@ async def _relay_tool_call(
         )
 
 
+def _create_proxy(
+    upstream: ClientSession,
+    initialized: InitializeResult,
+    *,
+    usage_user: str,
+    central_host: str,
+) -> Server:
+    """Relay supported capabilities over the same authenticated upstream session.
+
+    Return whole SDK results to preserve pagination, MIME, content and metadata.
+    Resource/prompt failures propagate as JSON-RPC errors, never content strings.
+    Subscriptions and change notifications are not advertised or relayed.
+    """
+
+    async def list_tools(
+        _ctx: ServerRequestContext[Any, Any], params: PaginatedRequestParams | None
+    ) -> ListToolsResult:
+        return await upstream.list_tools(params=params)
+
+    async def call_tool(
+        _ctx: ServerRequestContext[Any, Any], params: CallToolRequestParams
+    ) -> CallToolResult | InputRequiredResult:
+        return await _relay_tool_call(
+            upstream,
+            params.name,
+            params.arguments or {},
+            usage_user=usage_user,
+            central_host=central_host,
+            input_responses=params.input_responses,
+            request_state=params.request_state,
+        )
+
+    async def list_resources(
+        _ctx: ServerRequestContext[Any, Any], params: PaginatedRequestParams | None
+    ) -> ListResourcesResult:
+        return await upstream.list_resources(params=params)
+
+    async def list_templates(
+        _ctx: ServerRequestContext[Any, Any], params: PaginatedRequestParams | None
+    ) -> ListResourceTemplatesResult:
+        return await upstream.list_resource_templates(params=params)
+
+    async def read_resource(
+        _ctx: ServerRequestContext[Any, Any], params: ReadResourceRequestParams
+    ) -> ReadResourceResult | InputRequiredResult:
+        return await upstream.read_resource(
+            params.uri,
+            allow_input_required=True,
+            input_responses=params.input_responses,
+            request_state=params.request_state,
+            meta=params.meta,
+        )
+
+    async def list_prompts(
+        _ctx: ServerRequestContext[Any, Any], params: PaginatedRequestParams | None
+    ) -> ListPromptsResult:
+        return await upstream.list_prompts(params=params)
+
+    async def get_prompt(
+        _ctx: ServerRequestContext[Any, Any], params: GetPromptRequestParams
+    ) -> GetPromptResult | InputRequiredResult:
+        return await upstream.get_prompt(
+            params.name,
+            params.arguments,
+            allow_input_required=True,
+            input_responses=params.input_responses,
+            request_state=params.request_state,
+            meta=params.meta,
+        )
+
+    info, capabilities = initialized.server_info, initialized.capabilities
+    return Server(
+        "awx-mcp-proxy",
+        version=package_version(),
+        title=f"{info.title or info.name} (via proxy)",
+        instructions=initialized.instructions,
+        website_url=info.website_url,
+        on_list_tools=list_tools if capabilities.tools is not None else None,
+        on_call_tool=call_tool if capabilities.tools is not None else None,
+        on_list_resources=list_resources
+        if capabilities.resources is not None
+        else None,
+        on_list_resource_templates=(
+            list_templates if capabilities.resources is not None else None
+        ),
+        on_read_resource=read_resource if capabilities.resources is not None else None,
+        on_list_prompts=list_prompts if capabilities.prompts is not None else None,
+        on_get_prompt=get_prompt if capabilities.prompts is not None else None,
+    )
+
+
 async def _run_proxy_async(url: str, token: str, ssl_verify: bool | str) -> None:
     headers = {"Authorization": f"Bearer {token}"}
     # A user may restrict their own session to read-only; the central server
@@ -158,44 +257,11 @@ async def _run_proxy_async(url: str, token: str, ssl_verify: bool | str) -> None
                 init_result = await upstream.initialize()
                 logger.info("Connected to central awx-mcp at %s", url)
 
-                async def _list_tools(
-                    _ctx: ServerRequestContext[Any, Any],
-                    params: PaginatedRequestParams | None,
-                ) -> ListToolsResult:
-                    # A transport failure here raises, which the lowlevel server
-                    # converts to a JSON-RPC error (ListToolsResult has no
-                    # is_error field). The result is relayed whole so the central
-                    # server's next_cursor drives the client's pagination.
-                    return await upstream.list_tools(params=params)
-
-                async def _call_tool(
-                    _ctx: ServerRequestContext[Any, Any],
-                    params: CallToolRequestParams,
-                ) -> CallToolResult | InputRequiredResult:
-                    return await _relay_tool_call(
-                        upstream,
-                        params.name,
-                        params.arguments or {},
-                        usage_user=usage_user,
-                        central_host=central_host,
-                        input_responses=params.input_responses,
-                        request_state=params.request_state,
-                    )
-
-                # mcp 2.x replaced the @server.list_tools()/@server.call_tool()
-                # decorators with these constructor hooks, so the handlers are
-                # defined above and wired in here.
-                # Mirror the central server's identity and instructions so the
-                # model sees the same usage conventions as in local mode.
-                upstream_info = init_result.server_info
-                proxy = Server(
-                    "awx-mcp-proxy",
-                    version=package_version(),
-                    title=f"{upstream_info.title or upstream_info.name} (via proxy)",
-                    instructions=init_result.instructions,
-                    website_url=upstream_info.website_url,
-                    on_list_tools=_list_tools,
-                    on_call_tool=_call_tool,
+                proxy = _create_proxy(
+                    upstream,
+                    init_result,
+                    usage_user=usage_user,
+                    central_host=central_host,
                 )
 
                 init_opts = proxy.create_initialization_options()

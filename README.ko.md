@@ -58,6 +58,7 @@ GIF는 로컬 fake AWX fixture에 실제 MCP `list_jobs(status="failed")`와 `ge
 - [Credential Management (opt-in)](#credential-management-opt-in)
 - [MCP 클라이언트 연동](#mcp-클라이언트-연동)
 - [사용 예시](#사용-예시)
+- [Resource와 runbook prompt](#resource와-runbook-prompt)
 - [도구 목록](#도구-목록)
 - [트러블슈팅](#트러블슈팅)
 - [기여하기](#기여하기)
@@ -452,6 +453,37 @@ MCP 클라이언트(Claude 등)에 자연어로 요청하면 서버가 적절한
 ```
 
 ---
+
+## Resource와 runbook prompt
+
+로컬 stdio, 중앙 HTTP/SSE 서버, stdio proxy에서 같은 읽기 전용 resource와 runbook prompt를 제공합니다. Toolset을 선택하면 해당 capability도 함께 필터링합니다. 읽기 전용 모드에서도 사용할 수 있습니다. 중앙 서버가 resource를 읽을 때는 각 요청의 호출자 토큰과 AWX 권한을 적용하며, 서버의 자격 증명으로 대체하지 않습니다.
+
+`resources/templates/list`에서 URI template 5개를 확인하고, 읽기 도구로 조회한 ID를 넣어 사용하세요. 각 resource는 ID로 지정하므로 `resources/list`는 빈 목록을 반환합니다.
+
+| URI template | 내용 | 필요한 toolset |
+|---|---|---|
+| `awx://jobs/{id}` | Job 상세 정보, `application/json` | `jobs` |
+| `awx://jobs/{id}/stdout` | Job 실행 출력, `text/plain` | `jobs` |
+| `awx://inventories/{id}` | Inventory 상세 정보, `application/json` | `inventories` |
+| `awx://inventory-sources/{id}` | Inventory source 상세 정보, `application/json` | `inventories` |
+| `awx://projects/{id}` | Project 상세 정보, `application/json` | `projects` |
+
+Runbook은 `prompts/list`와 `prompts/get`으로 조회합니다. 필요한 toolset을 모두 활성화한 경우에만 해당 prompt를 노출합니다. Prompt를 생성할 때는 AWX를 호출하지 않습니다. 생성된 지침은 읽기 점검 절차를 안내하며, 모든 쓰기 작업 전에 사용자의 명시적인 확인을 요구합니다.
+
+| Prompt | 필수 인자 | 읽기 점검 절차 | 필요한 toolset |
+|---|---|---|---|
+| `failed_job_triage` | `job_id` | 상태, stdout, event, host별 결과를 확인합니다 | `jobs` |
+| `pre_change_inventory_check` | `inventory_id` | Inventory, host, group, source 상태를 확인합니다 | `inventories`, `hosts`, `groups` |
+| `project_sync_review` | `project_id` | SCM revision, sync 이력, 로그, playbook을 확인합니다 | `projects` |
+
+초기화한 Python MCP `ClientSession`에서 다음과 같이 호출합니다.
+
+```python
+await session.read_resource("awx://jobs/42/stdout")
+await session.get_prompt("failed_job_triage", {"job_id": "42"})
+```
+
+Proxy는 upstream의 pagination, resource 내용과 metadata를 보존합니다. Resource 구독과 변경 알림은 중계하지 않습니다.
 
 ## 도구 목록
 

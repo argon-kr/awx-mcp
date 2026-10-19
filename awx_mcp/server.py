@@ -467,6 +467,16 @@ def register_tools(target: MCPServer, settings: Settings) -> list[str]:
     return [spec.func.__name__ for spec in selected]
 
 
+def register_capabilities(target: MCPServer, settings: Settings) -> None:
+    """Register the selected tools, read resources and instruction-only prompts."""
+    from .prompts import register_prompts
+    from .resources import register_resources
+
+    register_tools(target, settings)
+    register_resources(target, settings)
+    register_prompts(target, settings)
+
+
 def warn_if_exposed(host: str, tls_enabled: bool) -> None:
     """Warn when the network server binds a non-local address without TLS.
 

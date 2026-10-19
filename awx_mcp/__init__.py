@@ -136,14 +136,14 @@ def main():
         configure,
         logger,
         mcp,
-        register_tools,
+        register_capabilities,
         resolve_tls_kwargs,
         warn_if_exposed,
     )
 
     try:
         settings.validate_startup()
-        register_tools(mcp, settings)
+        register_capabilities(mcp, settings)
         configure(settings)
         tls_kwargs = resolve_tls_kwargs(transport, settings)
     except ValueError as exc:
