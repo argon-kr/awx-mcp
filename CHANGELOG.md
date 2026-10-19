@@ -9,6 +9,19 @@ against (see [Versioning](#versioning)).
 ## [Unreleased]
 
 ### Added
+- Local release preparation and tag-triggered workflows for GitHub Releases,
+  multi-platform GHCR images, and MCP Registry publication, with manifest and
+  installation checks. No release, image, or Registry entry has been published
+  by this preparation.
+- Explicit `--stdio` and `--version` CLI options.
+- `--toolsets` / `AWX_MCP_TOOLSETS` selection and a `--read-only` CLI flag for
+  local and central servers. Proxy mode rejects toolset subsets rather than
+  implying that a local subset can restrict the remote server.
+- Generated tool tables and reference documentation derived from actual MCP
+  registration, with a non-mutating parity check for stale docs and counts.
+- Local pre-commit checks using the locked project dev tools, an adding-a-tool
+  contributor guide, and Python CodeQL and OpenSSF Scorecard workflows.
+  Security workflow status badges report workflow state, not an achieved score.
 - `AWX_HTTP_TIMEOUT_READ` (read timeout per AWX request, default 90s) is now
   documented.
 - Name search on every `list_*` tool over a named collection. Each takes an
@@ -96,6 +109,13 @@ against (see [Versioning](#versioning)).
   warning is logged). (#15)
 
 ### Changed
+- Setup, secure token examples, troubleshooting, and the read-only fixture demo
+  are documented in English, Korean, and Japanese. The demo uses synthetic
+  data and real MCP calls against a local fake AWX fixture.
+- Startup configuration now uses explicit validated `Settings` and applies
+  toolset, read-only, and credential gates during deterministic registration.
+- Shared resource helpers now preserve the existing host/group tool contracts,
+  with additional endpoint regressions and smoke-driver failure coverage.
 - Tool results are sent once. Every tool returns a JSON string; with SDK
   defaults the same JSON was also sent a second time, escaped, as
   `structuredContent.result` under an auto-generated `{"result": string}`

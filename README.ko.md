@@ -3,6 +3,8 @@
 MCP 클라이언트에서 AWX의 실패한 작업과 실행 로그를 조회하고, 호출자의 AWX 권한으로 자동화를 관리할 수 있습니다. 개인용 stdio 프로세스로 실행하거나, 사용자별 토큰을 전달하는 중앙 서버로 공유할 수 있습니다.
 
 ![CI](https://github.com/lycorp-jp/awx-mcp/actions/workflows/ci.yml/badge.svg)
+![CodeQL](https://github.com/lycorp-jp/awx-mcp/actions/workflows/codeql.yml/badge.svg)
+![OpenSSF Scorecard workflow](https://github.com/lycorp-jp/awx-mcp/actions/workflows/scorecard.yml/badge.svg)
 ![Release](https://img.shields.io/github/v/release/lycorp-jp/awx-mcp)
 ![Python](https://img.shields.io/badge/Python-≥3.10-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-Apache_2.0-blue)

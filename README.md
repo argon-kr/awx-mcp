@@ -3,6 +3,8 @@
 Connect your MCP client to AWX to inspect failed jobs, read execution logs, and manage automation with the caller’s AWX permissions. Run locally over stdio or share a central server with per-user token passthrough.
 
 ![CI](https://github.com/lycorp-jp/awx-mcp/actions/workflows/ci.yml/badge.svg)
+![CodeQL](https://github.com/lycorp-jp/awx-mcp/actions/workflows/codeql.yml/badge.svg)
+![OpenSSF Scorecard workflow](https://github.com/lycorp-jp/awx-mcp/actions/workflows/scorecard.yml/badge.svg)
 ![Release](https://img.shields.io/github/v/release/lycorp-jp/awx-mcp)
 ![Python](https://img.shields.io/badge/Python-≥3.10-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-Apache_2.0-blue)

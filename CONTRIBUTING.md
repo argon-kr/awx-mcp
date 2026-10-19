@@ -9,7 +9,7 @@ Requires Python >= 3.10 and [uv](https://github.com/astral-sh/uv).
 ```bash
 git clone https://github.com/lycorp-jp/awx-mcp.git
 cd awx-mcp
-uv sync
+uv sync --dev
 ```
 
 Run tests:
@@ -25,12 +25,61 @@ uv run ruff check .
 uv run ruff format --check .
 ```
 
+### Local pre-commit hooks
+
+After `uv sync --dev`, install the repository hooks and run them once:
+
+```bash
+uvx pre-commit install
+uvx pre-commit run --all-files
+```
+
+The local hooks run Ruff lint, Ruff format checking, mypy, and documentation
+parity across the project with `uv run --locked`. Their tool versions come
+from `pyproject.toml` and `uv.lock`, with no separate hook dependency pins.
+Checks also run for documentation-only commits. They report stale generated
+documentation instead of rewriting it. Run the generator explicitly when
+needed, review the diff, and rerun the hooks. Tests and the coverage gate
+remain part of the full CI checks below.
+
 ## Code Style
 
 - Linting and formatting via `ruff`. Config is in `pyproject.toml`.
 - Follow the patterns already in the codebase. Each domain module lives under `awx_mcp/tools/` and follows the same structure.
 - Type hints are expected on all public functions.
 - Keep tool functions focused. One tool, one operation.
+
+## Adding a Tool
+
+1. Add the function to the matching domain module under `awx_mcp/tools/`.
+   Keep AWX endpoint selection, IDs, and client context in the domain module.
+   `awx_mcp/tools/__init__.py` automatically discovers modules whose names do
+   not start with `_`. The module basename becomes the toolset name for
+   `--toolsets` and `AWX_MCP_TOOLSETS`.
+2. Use `@read_tool` for read-only operations or `@write_tool(...)` for writes,
+   with accurate `destructive` and `idempotent` annotations. These decorators
+   collect tool specifications for explicit startup registration and enforce
+   the read-only gate. Sensitive credential/user writes use
+   `@maybe_credential_management_tool` and remain opt-in behind
+   `AWX_MCP_ENABLE_CREDENTIAL_MANAGEMENT`. Follow `SECURITY.md` before adding
+   any sensitive input handling. Add a typed signature and a docstring that
+   explains when to use the tool, its parameters, and any destructive impact.
+3. Reuse `awx_mcp/tools/_helpers.py` for compatible list, get, and delete
+   operations and `drop_none(**fields)` for optional update fields. Preserve
+   meaningful empty values, pagination envelopes, and existing JSON
+   validation. Keep domain-specific operations in their modules.
+4. Add endpoint-level tests with the real `AnsibleClient` and mocked HTTP
+   responses. Assert the HTTP method, endpoint, query/body, returned content,
+   and relevant validation or AWX error paths. Verify registration in the
+   selected toolset and read-only/credential modes when applicable. Never
+   use real AWX credentials or write to an AWX instance in unit tests.
+5. Run `uv run python scripts/gen_tool_docs.py` and review all generated
+   regions in the three READMEs and the tool reference. Update narrative
+   translations outside generated regions when behavior changes. Run
+   `uv run python scripts/check_doc_parity.py` to verify the result without
+   changing files.
+6. Add a user-visible entry under `## [Unreleased]` in `CHANGELOG.md` and run
+   all checks in the next section before opening a PR.
 
 ## Submitting a PR
 
@@ -42,10 +91,12 @@ uv run ruff format --check .
    generated regions up to date. Tool summaries use the original English docstring.
 3. Run the same checks CI runs. All must pass:
    ```bash
-   uv run ruff check . && uv run ruff format --check .
+   uv lock --check
+   uv run ruff check .
+   uv run ruff format --check .
    uv run mypy awx_mcp/
    uv run python scripts/check_doc_parity.py
-   uv run pytest --cov=awx_mcp --cov-fail-under=80
+   uv run pytest tests/ -v --cov=awx_mcp --cov-fail-under=80
    ```
 4. Add a line under `## [Unreleased]` in `CHANGELOG.md` for any user-visible change.
 5. Open a pull request against `main`. Describe what changed and why.
@@ -75,8 +126,7 @@ disabled so every report carries the details below). Include:
 - What you ran and what you expected
 - The full error output or traceback
 
-Check existing issues first to avoid duplicates. Usage questions belong in
-[Discussions](https://github.com/lycorp-jp/awx-mcp/discussions).
+Check existing issues first to avoid duplicates.
 
 ## Linting and Type Checking
 
