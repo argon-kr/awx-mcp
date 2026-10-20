@@ -2,11 +2,12 @@
 
 """JSON access log for the central network server (``--serve``).
 
-Opt-in via ``AWX_MCP_ACCESS_LOG_FILE``: when set, every inbound HTTP request is
-appended to that file as one JSON object per line (JSON Lines), rotating at
-midnight (UTC) like the usage log. This is the transport-level access log —
-who connected, which HTTP endpoint, status, latency — complementing the usage
-log, which records per-tool calls with AWX user attribution.
+Central streamable-http and sse transports always emit every inbound HTTP
+request to stdout as one JSON object per line (JSON Lines).
+``AWX_MCP_ACCESS_LOG_FILE`` optionally adds a file sink, rotating at midnight
+(UTC) like the usage log. An unset path does not disable central stdout.
+This transport-level log records who connected, the HTTP endpoint, status,
+and latency, complementing per-tool usage logs with AWX user attribution.
 
 The middleware is a pure ASGI wrapper: it never modifies the request or
 response and swallows all of its own errors, so access logging can never break
@@ -21,13 +22,13 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import sys
 import threading
 import time
 from datetime import datetime, timezone
 from typing import Any
 
+from .settings import get_settings
 from .usage import make_timed_rotating_handler, stdout_jsonl_enabled
 
 logger = logging.getLogger("ansible-mcp.access")
@@ -37,8 +38,8 @@ _access_logger_lock = threading.Lock()
 
 
 def _log_file() -> str | None:
-    """The access-log path (read per call so tests can toggle the env)."""
-    return os.environ.get("AWX_MCP_ACCESS_LOG_FILE") or None
+    """The access-log path from the startup configuration."""
+    return get_settings().access_log_file
 
 
 def access_log_enabled() -> bool:
@@ -86,8 +87,8 @@ def _get_access_logger() -> logging.Logger | None:
     return _access_logger
 
 
-def _reset_for_tests() -> None:
-    """Drop the cached logger so tests can point the sink at a new file."""
+def configure() -> None:
+    """Close the previous startup configuration's log sinks."""
     global _access_logger
     with _access_logger_lock:
         if _access_logger is not None:
@@ -95,6 +96,10 @@ def _reset_for_tests() -> None:
                 handler.close()
             _access_logger.handlers.clear()
         _access_logger = None
+
+
+# Compatibility for the existing test/embedding cleanup API.
+_reset_for_tests = configure
 
 
 def _header(scope: dict[str, Any], name: bytes) -> str | None:

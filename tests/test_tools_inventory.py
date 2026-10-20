@@ -13,12 +13,14 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from awx_mcp.tools import execution_environments as ee_mod
 from awx_mcp.tools import groups as groups_mod
 from awx_mcp.tools import hosts as hosts_mod
 from awx_mcp.tools import labels as labels_mod
 from awx_mcp.tools import schedules as schedules_mod
-from tests.conftest import fake_client_factory
+from tests.conftest import TOOL_ERRORS, fake_client_factory
 
 
 def _paginated(rows):
@@ -39,8 +41,11 @@ def test_list_hosts_global_endpoint_and_page_size():
         out = json.loads(hosts_mod.list_hosts())
 
     assert api.request.call_args.args == ("GET", "/api/v2/hosts/")
-    assert api.request.call_args.kwargs["params"] == {"page_size": 100}
-    assert out == [{"id": 1, "name": "h1"}]
+    assert api.request.call_args.kwargs["params"] == {"page_size": 20}
+    assert out["results"] == [{"id": 1, "name": "h1"}]
+    assert out["count"] == 1
+    assert out["returned"] == 1
+    assert out["offset"] == 0
 
 
 def test_list_hosts_scoped_to_inventory():
@@ -98,11 +103,11 @@ def test_create_host_invalid_variables_json_short_circuits():
     api = MagicMock()
 
     with patch.object(hosts_mod, "get_ansible_client", new=fake_client_factory(api)):
-        out = json.loads(
-            hosts_mod.create_host(name="x", inventory_id=1, variables="not-json{{")
-        )
+        with pytest.raises(TOOL_ERRORS):
+            json.loads(
+                hosts_mod.create_host(name="x", inventory_id=1, variables="not-json{{")
+            )
 
-    assert out["status"] == "error"
     api.request.assert_not_called()
 
 
@@ -134,9 +139,9 @@ def test_update_host_invalid_variables_json_short_circuits():
     api = MagicMock()
 
     with patch.object(hosts_mod, "get_ansible_client", new=fake_client_factory(api)):
-        out = json.loads(hosts_mod.update_host(host_id=5, variables="bad-json"))
+        with pytest.raises(TOOL_ERRORS):
+            json.loads(hosts_mod.update_host(host_id=5, variables="bad-json"))
 
-    assert out["status"] == "error"
     api.request.assert_not_called()
 
 
@@ -163,8 +168,11 @@ def test_list_groups_global_endpoint():
         out = json.loads(groups_mod.list_groups())
 
     assert api.request.call_args.args == ("GET", "/api/v2/groups/")
-    assert api.request.call_args.kwargs["params"] == {"page_size": 100}
-    assert out == [{"id": 1, "name": "g1"}]
+    assert api.request.call_args.kwargs["params"] == {"page_size": 20}
+    assert out["results"] == [{"id": 1, "name": "g1"}]
+    assert out["count"] == 1
+    assert out["returned"] == 1
+    assert out["offset"] == 0
 
 
 def test_list_groups_scoped_to_inventory():
@@ -218,11 +226,11 @@ def test_create_group_invalid_variables_json_short_circuits():
     api = MagicMock()
 
     with patch.object(groups_mod, "get_ansible_client", new=fake_client_factory(api)):
-        out = json.loads(
-            groups_mod.create_group(name="x", inventory_id=1, variables="{bad")
-        )
+        with pytest.raises(TOOL_ERRORS):
+            json.loads(
+                groups_mod.create_group(name="x", inventory_id=1, variables="{bad")
+            )
 
-    assert out["status"] == "error"
     api.request.assert_not_called()
 
 
@@ -242,9 +250,9 @@ def test_update_group_invalid_variables_json_short_circuits():
     api = MagicMock()
 
     with patch.object(groups_mod, "get_ansible_client", new=fake_client_factory(api)):
-        out = json.loads(groups_mod.update_group(group_id=2, variables="{bad"))
+        with pytest.raises(TOOL_ERRORS):
+            json.loads(groups_mod.update_group(group_id=2, variables="{bad"))
 
-    assert out["status"] == "error"
     api.request.assert_not_called()
 
 
@@ -303,8 +311,11 @@ def test_list_schedules_no_filter():
         out = json.loads(schedules_mod.list_schedules())
 
     assert api.request.call_args.args == ("GET", "/api/v2/schedules/")
-    assert api.request.call_args.kwargs["params"] == {"page_size": 100}
-    assert out == [{"id": 1}]
+    assert api.request.call_args.kwargs["params"] == {"page_size": 20}
+    assert out["results"] == [{"id": 1}]
+    assert out["count"] == 1
+    assert out["returned"] == 1
+    assert out["offset"] == 0
 
 
 def test_list_schedules_filtered_by_template():
@@ -318,7 +329,7 @@ def test_list_schedules_filtered_by_template():
 
     assert api.request.call_args.kwargs["params"] == {
         "unified_job_template": 42,
-        "page_size": 100,
+        "page_size": 20,
     }
 
 
@@ -371,16 +382,16 @@ def test_create_schedule_invalid_extra_data_short_circuits():
     with patch.object(
         schedules_mod, "get_ansible_client", new=fake_client_factory(api)
     ):
-        out = json.loads(
-            schedules_mod.create_schedule(
-                name="x",
-                unified_job_template_id=1,
-                rrule="FREQ=DAILY",
-                extra_data="not-json",
+        with pytest.raises(TOOL_ERRORS):
+            json.loads(
+                schedules_mod.create_schedule(
+                    name="x",
+                    unified_job_template_id=1,
+                    rrule="FREQ=DAILY",
+                    extra_data="not-json",
+                )
             )
-        )
 
-    assert out["status"] == "error"
     api.request.assert_not_called()
 
 
@@ -408,11 +419,11 @@ def test_update_schedule_invalid_extra_data_short_circuits():
     with patch.object(
         schedules_mod, "get_ansible_client", new=fake_client_factory(api)
     ):
-        out = json.loads(
-            schedules_mod.update_schedule(schedule_id=3, extra_data="{not-json")
-        )
+        with pytest.raises(TOOL_ERRORS):
+            json.loads(
+                schedules_mod.update_schedule(schedule_id=3, extra_data="{not-json")
+            )
 
-    assert out["status"] == "error"
     api.request.assert_not_called()
 
 
@@ -441,8 +452,11 @@ def test_list_execution_environments():
         out = json.loads(ee_mod.list_execution_environments())
 
     assert api.request.call_args.args == ("GET", "/api/v2/execution_environments/")
-    assert api.request.call_args.kwargs["params"] == {"page_size": 100}
-    assert out == [{"id": 1, "name": "ee1"}]
+    assert api.request.call_args.kwargs["params"] == {"page_size": 20}
+    assert out["results"] == [{"id": 1, "name": "ee1"}]
+    assert out["count"] == 1
+    assert out["returned"] == 1
+    assert out["offset"] == 0
 
 
 def test_get_execution_environment():
@@ -542,8 +556,11 @@ def test_list_labels():
         out = json.loads(labels_mod.list_labels())
 
     assert api.request.call_args.args == ("GET", "/api/v2/labels/")
-    assert api.request.call_args.kwargs["params"] == {"page_size": 100}
-    assert out == [{"id": 1, "name": "prod"}]
+    assert api.request.call_args.kwargs["params"] == {"page_size": 20}
+    assert out["results"] == [{"id": 1, "name": "prod"}]
+    assert out["count"] == 1
+    assert out["returned"] == 1
+    assert out["offset"] == 0
 
 
 def test_create_label():

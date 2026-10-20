@@ -6,12 +6,11 @@ Ansible MCP Server - System Tools
 Activity stream, system information, metrics, and system job management.
 """
 
-import json
 from typing import Any
 
 from ..client import get_ansible_client, handle_pagination
 from ..server import read_tool, write_tool
-from ..utils import validate_json_str
+from ..utils import to_json, validate_json_str
 
 # =============================================================================
 # Activity Stream
@@ -45,7 +44,10 @@ _ACTIVITY_STREAM_PATHS = {
 
 @read_tool
 def list_activity_stream(
-    limit: int = 100, offset: int = 0, object_type: str = None, object_id: int = None
+    limit: int = 20,
+    offset: int = 0,
+    object_type: str | None = None,
+    object_id: int | None = None,
 ) -> str:
     """List AWX activity stream audit entries.
 
@@ -58,6 +60,10 @@ def list_activity_stream(
           /api/v2/<collection>/<id>/activity_stream/ (precise, recommended).
         - object_type only: filters the global stream by object1 model name.
         - neither: returns the unfiltered global stream.
+
+    Returns a JSON envelope {count, returned, offset, results}. count is the
+    server-side total; if offset + returned < count, call again with
+    offset=offset+returned to page through.
 
     Args:
         limit: Maximum number of results to return
@@ -74,8 +80,8 @@ def list_activity_stream(
             collection = _ACTIVITY_STREAM_PATHS.get(object_type)
             if collection is not None:
                 endpoint = f"/api/v2/{collection}/{object_id}/activity_stream/"
-                activities = handle_pagination(client, endpoint, params)
-                return json.dumps(activities, indent=2)
+                envelope = handle_pagination(client, endpoint, params, with_meta=True)
+                return to_json(envelope)
             # Unknown type: fall back to a best-effort global filter by type.
             params["object1"] = object_type
 
@@ -83,8 +89,10 @@ def list_activity_stream(
         elif object_type is not None:
             params["object1"] = object_type
 
-        activities = handle_pagination(client, "/api/v2/activity_stream/", params)
-        return json.dumps(activities, indent=2)
+        envelope = handle_pagination(
+            client, "/api/v2/activity_stream/", params, with_meta=True
+        )
+        return to_json(envelope)
 
 
 # =============================================================================
@@ -101,7 +109,7 @@ def get_config() -> str:
     """
     with get_ansible_client() as client:
         config = client.request("GET", "/api/v2/config/")
-        return json.dumps(config, indent=2)
+        return to_json(config)
 
 
 @read_tool
@@ -114,7 +122,7 @@ def get_ansible_version() -> str:
     """
     with get_ansible_client() as client:
         info = client.request("GET", "/api/v2/ping/")
-        return json.dumps(info, indent=2)
+        return to_json(info)
 
 
 @read_tool
@@ -126,16 +134,20 @@ def get_dashboard_stats() -> str:
     """
     with get_ansible_client() as client:
         stats = client.request("GET", "/api/v2/dashboard/")
-        return json.dumps(stats, indent=2)
+        return to_json(stats)
 
 
 # =============================================================================
-# System Job Templates & System Jobs (NEW)
+# System Job Templates & System Jobs
 # =============================================================================
 
 
 @read_tool
-def list_system_job_templates(limit: int = 100, offset: int = 0) -> str:
+def list_system_job_templates(
+    template_name: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> str:
     """List AWX system job templates for maintenance operations.
 
     Use this to discover runnable maintenance tasks such as cleanup and
@@ -143,14 +155,30 @@ def list_system_job_templates(limit: int = 100, offset: int = 0) -> str:
     For playbook execution templates, use list_job_templates.
     Returns template IDs for launch_system_job.
 
+    System job template name searches are performed server-side using AWX's
+    case-insensitive partial-name filter. Prefer this over paging through the
+    whole collection when resolving a name to an ID.
+
+    Returns a JSON envelope {count, returned, offset, results}. count is the
+    server-side total; if offset + returned < count, call again with
+    offset=offset+returned to page through.
+
     Args:
+        template_name: Optional full or partial system job template name,
+            matched case-insensitively.
         limit: Maximum number of results to return
         offset: Number of results to skip
     """
     with get_ansible_client() as client:
         params: dict[str, Any] = {"limit": limit, "offset": offset}
-        templates = handle_pagination(client, "/api/v2/system_job_templates/", params)
-        return json.dumps(templates, indent=2)
+
+        if template_name and template_name.strip():
+            params["name__icontains"] = template_name.strip()
+
+        envelope = handle_pagination(
+            client, "/api/v2/system_job_templates/", params, with_meta=True
+        )
+        return to_json(envelope)
 
 
 @read_tool
@@ -165,11 +193,11 @@ def get_system_job_template(template_id: int) -> str:
     """
     with get_ansible_client() as client:
         template = client.request("GET", f"/api/v2/system_job_templates/{template_id}/")
-        return json.dumps(template, indent=2)
+        return to_json(template)
 
 
 @write_tool(destructive=True)
-def launch_system_job(template_id: int, extra_vars: str = None) -> str:
+def launch_system_job(template_id: int, extra_vars: str | None = None) -> str:
     """Launch an AWX maintenance system job from a system job template.
 
     Starts asynchronous controller maintenance work and returns a system job
@@ -184,9 +212,7 @@ def launch_system_job(template_id: int, extra_vars: str = None) -> str:
         extra_vars: JSON string of extra variables (e.g., {"days": 90})
     """
     if extra_vars is not None:
-        error = validate_json_str(extra_vars, "extra_vars")
-        if error:
-            return error
+        validate_json_str(extra_vars, "extra_vars")
 
     with get_ansible_client() as client:
         data = {}
@@ -195,12 +221,12 @@ def launch_system_job(template_id: int, extra_vars: str = None) -> str:
         response = client.request(
             "POST", f"/api/v2/system_job_templates/{template_id}/launch/", data=data
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @read_tool
 def list_system_jobs(
-    limit: int = 100, offset: int = 0, order_by: str = "-created"
+    limit: int = 20, offset: int = 0, order_by: str = "-created"
 ) -> str:
     """List AWX system job executions.
 
@@ -210,6 +236,10 @@ def list_system_jobs(
     Use this for maintenance-task run history such as cleanup and analytics jobs.
     For regular playbook execution runs, use list_jobs.
     For multi-step orchestration runs, use list_workflow_jobs.
+
+    Returns a JSON envelope {count, returned, offset, results}. count is the
+    server-side total; if offset + returned < count, call again with
+    offset=offset+returned to page through.
 
     Args:
         limit: Maximum number of results to return
@@ -223,8 +253,10 @@ def list_system_jobs(
             "offset": offset,
             "order_by": order_by,
         }
-        jobs = handle_pagination(client, "/api/v2/system_jobs/", params)
-        return json.dumps(jobs, indent=2)
+        envelope = handle_pagination(
+            client, "/api/v2/system_jobs/", params, with_meta=True
+        )
+        return to_json(envelope)
 
 
 @read_tool
@@ -242,4 +274,4 @@ def get_system_job(job_id: int) -> str:
     """
     with get_ansible_client() as client:
         job = client.request("GET", f"/api/v2/system_jobs/{job_id}/")
-        return json.dumps(job, indent=2)
+        return to_json(job)

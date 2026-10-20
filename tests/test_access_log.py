@@ -9,13 +9,14 @@ import pytest
 
 from awx_mcp import access_log
 from awx_mcp.access_log import AccessLogMiddleware, access_log_enabled
+from tests.conftest import set_test_settings
 
 
 @pytest.fixture(autouse=True)
 def _fresh_sink(monkeypatch, tmp_path):
     """Point the access log at a per-test file and reset the cached logger."""
     path = tmp_path / "access.jsonl"
-    monkeypatch.setenv("AWX_MCP_ACCESS_LOG_FILE", str(path))
+    set_test_settings(monkeypatch, access_log_file=str(path))
     access_log._reset_for_tests()
     yield path
     access_log._reset_for_tests()
@@ -122,7 +123,7 @@ def test_non_http_scope_passthrough(_fresh_sink):
 
 
 def test_disabled_without_env(monkeypatch, tmp_path, _fresh_sink):
-    monkeypatch.delenv("AWX_MCP_ACCESS_LOG_FILE")
+    set_test_settings(monkeypatch, access_log_file=None)
     access_log._reset_for_tests()
     assert not access_log_enabled()
 
@@ -137,7 +138,7 @@ def test_response_passes_through_unchanged(_fresh_sink):
 
 
 def test_serve_mode_mirrors_to_stdout(monkeypatch, _fresh_sink, capsys):
-    monkeypatch.setenv("AWX_MCP_EFFECTIVE_TRANSPORT", "streamable-http")
+    set_test_settings(monkeypatch, transport="streamable-http")
     access_log._reset_for_tests()
 
     _run(AccessLogMiddleware(_ok_app(201)), _http_scope())
@@ -150,8 +151,8 @@ def test_serve_mode_mirrors_to_stdout(monkeypatch, _fresh_sink, capsys):
 
 
 def test_serve_mode_stdout_only_without_file(monkeypatch, tmp_path, capsys):
-    monkeypatch.delenv("AWX_MCP_ACCESS_LOG_FILE", raising=False)
-    monkeypatch.setenv("AWX_MCP_EFFECTIVE_TRANSPORT", "sse")
+    set_test_settings(monkeypatch, access_log_file=None)
+    set_test_settings(monkeypatch, transport="sse")
     access_log._reset_for_tests()
 
     assert access_log_enabled()
@@ -163,7 +164,7 @@ def test_serve_mode_stdout_only_without_file(monkeypatch, tmp_path, capsys):
 
 
 def test_stdio_mode_never_writes_stdout(monkeypatch, _fresh_sink, capsys):
-    monkeypatch.setenv("AWX_MCP_EFFECTIVE_TRANSPORT", "stdio")
+    set_test_settings(monkeypatch, transport="stdio")
     access_log._reset_for_tests()
 
     _run(AccessLogMiddleware(_ok_app()), _http_scope())

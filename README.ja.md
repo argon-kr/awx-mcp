@@ -1,32 +1,64 @@
 # AWX MCP Server
 
-[English](README.md) | [🇰🇷 한국어](README.ko.md)
+MCP クライアントから AWX の失敗したジョブや実行ログを確認し、呼び出し元の AWX 権限で自動化を管理できます。ローカルの stdio プロセスとして実行するか、ユーザーごとのトークンを渡す中央サーバーとして共有できます。
 
+![CI](https://github.com/lycorp-jp/awx-mcp/actions/workflows/ci.yml/badge.svg)
+![CodeQL](https://github.com/lycorp-jp/awx-mcp/actions/workflows/codeql.yml/badge.svg)
+![OpenSSF Scorecard workflow](https://github.com/lycorp-jp/awx-mcp/actions/workflows/scorecard.yml/badge.svg)
+![Release](https://img.shields.io/github/v/release/lycorp-jp/awx-mcp)
 ![Python](https://img.shields.io/badge/Python-≥3.10-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-Apache_2.0-blue)
 ![MCP Tools](https://img.shields.io/badge/MCP_Tools-145-blue)
-![AWX](https://img.shields.io/badge/AWX-24.x-EE0000?logo=redhat&logoColor=white)
+![AWX](https://img.shields.io/badge/AWX-tested_24.6.1-EE0000?logo=redhat&logoColor=white)
 
-LLM が AWX インスタンスと連携できるようにする MCP（Model Context Protocol）サーバーです。
+[English](README.md) | [한국어](README.ko.md)
 
-**145 個のツール**でインベントリ、ホスト、プロジェクト、ジョブテンプレート、ワークフロー、認証情報、実行環境、RBAC、システム管理など AWX のすべての主要機能をカバーします。
+現在は Git リポジトリからインストールできます。**PyPI には公開しません**。初回 release、GHCR イメージ、MCP Registry への公開は未実施のため、Release badge は release なしと表示される場合があります。
 
-> デフォルトでは 141 個のツールが登録されます。残り 4 個（`create_credential`、`update_credential`、`create_user`、`update_user`）は Form mode elicitation で機密データを収集するため、`AWX_MCP_ENABLE_CREDENTIAL_MANAGEMENT=true` を設定した場合のみ有効化されます。詳細は [Credential Management (opt-in)](#credential-management-opt-in) を参照してください。
+## クイックスタート
 
----
+まず uv をインストールしてください: https://docs.astral.sh/uv/
+
+自分の AWX URL とトークンを設定します。以下はトークンをコマンドに直接記述せず、環境変数で渡す読み取り専用の設定です。
+
+```bash
+export ANSIBLE_BASE_URL="https://awx.example.com/"
+export ANSIBLE_TOKEN="REPLACE_WITH_YOUR_AWX_TOKEN"
+export AWX_MCP_READ_ONLY=true
+claude mcp add --scope project awx \
+  -e 'ANSIBLE_BASE_URL=${ANSIBLE_BASE_URL}' \
+  -e 'ANSIBLE_TOKEN=${ANSIBLE_TOKEN}' \
+  -e 'AWX_MCP_READ_ONLY=${AWX_MCP_READ_ONLY}' \
+  -- uvx --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp
+```
+
+`AWX_MCP_READ_ONLY=true` は任意の初期設定です。書き込みツールが必要で、AWX ロールにも権限がある場合に解除してください。サーバープロセスは MCP クライアントから起動します。Claude Desktop などの設定は [MCPクライアント連携](#mcpクライアント連携) を参照してください。
+
+単一引用符により `.mcp.json` に `${VAR}` 参照をそのまま保存します。環境変数を設定したシェルから Claude Code を起動してください。環境変数の展開: https://code.claude.com/docs/en/mcp#environment-variable-expansion-in-mcpjson
+
+## 読み取り専用 fixture デモ
+
+![Read-only MCP fixture demo](docs/demo.gif)
+
+GIF はローカルの fake AWX fixture に対する実際の MCP `list_jobs(status="failed")` と `get_job_stdout(job_id=42)` 呼び出しを示します。データとトークンはすべて架空です。実際の AWX 運用環境や LLM 会話の録画ではなく、MCP プロトコルの動作を再現したデモです。
+
+[実行記録](docs/demo.txt) · [再現方法](docs/demo.tape)
 
 ## 目次
 
 - [クイックスタート](#クイックスタート)
+- [読み取り専用 fixture デモ](#読み取り専用-fixture-デモ)
 - [前提条件](#前提条件)
 - [アーキテクチャ](#アーキテクチャ)
 - [互換性](#互換性)
 - [機能](#機能)
 - [インストール](#インストール)
+- [デプロイモード](#デプロイモード)
 - [設定](#設定)
 - [Credential Management (opt-in)](#credential-management-opt-in)
 - [MCPクライアント連携](#mcpクライアント連携)
 - [使用例](#使用例)
+- [Resource と runbook prompt](#resource-と-runbook-prompt)
 - [ツール一覧](#ツール一覧)
 - [トラブルシューティング](#トラブルシューティング)
 - [コントリビューション](#コントリビューション)
@@ -37,46 +69,10 @@ LLM が AWX インスタンスと連携できるようにする MCP（Model Cont
 
 ---
 
-## クイックスタート
-
-このサーバーは [uv](https://docs.astral.sh/uv/) の `uvx` を使って git リポジトリから直接実行します — 手動でのクローンも `uv sync` も不要です。`uvx` は初回実行時にリポジトリ URL からパッケージを取得・ビルドし、キャッシュします。
-
-### Claude Desktop（`claude_desktop_config.json`）
-
-```json
-{
-  "mcpServers": {
-    "awx": {
-      "command": "uvx",
-      "args": ["--from", "git+https://github.com/lycorp-jp/awx-mcp", "awx-mcp"],
-      "env": {
-        "ANSIBLE_BASE_URL": "https://awx.example.com/",
-        "ANSIBLE_TOKEN": "your_api_token"
-      }
-    }
-  }
-}
-```
-
-### Claude Code（CLI）
-
-```bash
-claude mcp add awx \
-  -e ANSIBLE_BASE_URL=https://awx.example.com/ \
-  -e ANSIBLE_TOKEN=your_api_token \
-  -- uvx --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp
-```
-
-設定後、LLM に「AWX に登録されているインベントリの一覧を表示して」のように自然言語でリクエストできます。
-
-> `uvx` は初回フェッチ時にリポジトリをキャッシュします。後で更新を取り込むには一度 `--refresh` を付けて実行してください（`uvx --refresh --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp`）。特定のバージョンに固定するには ref を追加します（`git+https://github.com/lycorp-jp/awx-mcp@vX.Y.Z`）。開発用途では、ローカルクローンも引き続き使えます: `uv run --directory /path/to/awx-mcp awx-mcp`。
-
----
-
 ## 前提条件
 
 - アクセス可能な AWX インスタンスとそのベース URL（REST API v2）、および適切な権限を持つ API トークン（またはユーザー名 + パスワード）
-- [uv](https://docs.astral.sh/uv/)（`uvx` を提供し、クローンなしで git リポジトリから直接サーバーを実行できます）
+- uv: https://docs.astral.sh/uv/（`uvx` を提供し、クローンなしで git リポジトリから直接サーバーを実行できます）
 
 ---
 
@@ -101,7 +97,7 @@ flowchart LR
 
 > LLM がユーザーのリクエストを解析して適切な MCP ツールを選択し、AWX MCP サーバーが AWX REST API を呼び出して結果を返します。
 
-> このサーバーは **STDIO**（デフォルト）、**SSE**、**Streamable HTTP** トランスポートをサポートします。ローカルの MCP クライアントには STDIO を、リモート/共有デプロイには SSE または Streamable HTTP を使用してください。
+> ローカルクライアントには stdio、新しいリモートデプロイには Streamable HTTP を推奨します。SSE は既存クライアント向けの legacy 互換 transport として維持します（`--serve --sse`、`/sse`）。
 
 ---
 
@@ -112,122 +108,95 @@ flowchart LR
 | AWX | 24.6.1（REST API v2） |
 | Python | ≥ 3.10 |
 | MCP トランスポート | STDIO、SSE、Streamable HTTP |
+| サーバーバージョン | AWX とは独立した SemVer（`MAJOR.MINOR.PATCH`）を使い、現在の開発バージョンは `1.0.0` です。公開インターフェースの互換性を壊す変更は MAJOR、互換性のある機能追加は MINOR、互換性のある修正は PATCH を上げます。Release tag は `vMAJOR.MINOR.PATCH` 形式です。開発バージョンの表記は tag の存在を意味しません。 |
+| その他の AWX / Ansible Tower バージョン | この表の検証対象ではありません。導入前に利用するインスタンスで確認してください。 |
 
 ---
 
 ## 機能
 
-### AWX リソース管理
+| 機能 | 利点 |
+|------|------|
+| AWX の 20 領域を扱う 145 ツール | インベントリ、ジョブ、ワークフロー、プロジェクト、RBAC、システム状態を 1 つの MCP クライアントで確認できます。 |
+| ローカル stdio と中央 `--serve` | 個人用プロセス、または呼び出し元ごとの AWX トークンを使う共有サーバーを選べます。 |
+| `AWX_MCP_READ_ONLY=true` | 起動時に読み取りツールだけを公開します。AWX RBAC も適用されます。 |
+| 名前フィルターとページネーション | 名前でリソースを検索し、クライアントに返すレコード数を制限できます。 |
+| トークンキャッシュ | ローカルでユーザー名とパスワードを使う場合、サーバーが生成した OAuth2 トークンを再利用します。 |
+| TLS と任意のファイルログ | 通信中の認証情報を保護します。中央サーバーは呼び出し元ごとの利用ログと HTTP アクセス JSONL を stdout に出力し、ファイルログも追加できます。 |
 
-インベントリ、ホスト、グループ、ジョブテンプレート、ジョブ、プロジェクト、ワークフロー、認証情報、RBAC、組織/チーム/ユーザー、実行環境、スケジュール、システム管理など AWX の全主要機能をカバーします。[ツール一覧](#ツール一覧) を参照してください。
-
-### 技術的特徴
-
-- **モジュール構造**: 20 のドメインモジュールで関心事を分離し、可読性・保守性を向上
-- **トークンキャッシュ**: username/password 認証時にトークンを再利用し、不要なトークン生成を防止
-- **ページネーション制御**: `limit` パラメーターで各レスポンスを要求件数に切り詰めるため、大量の結果セットが LLM コンテキストを圧迫しません
-- **デフォルトで安全（Safe by default）**: 機密データを扱う 4 つの認証情報/ユーザー書き込みツールは、`AWX_MCP_ENABLE_CREDENTIAL_MANAGEMENT=true` が設定されていない限り登録されません。デフォルトのデプロイは機密データを扱うツールを公開しません — [Credential Management (opt-in)](#credential-management-opt-in) 参照
-- **ツールパラメーター露出の低減（opt-in 有効化時）**: 認証情報の入力とパスワードを [MCP Elicitation](https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation)（Form mode）で収集し、ツールパラメーターとしては渡さないようにします
-- **読み取り専用モード**: `AWX_MCP_READ_ONLY=true` を設定すると、起動時に読み取りツール（`list_*`/`get_*`）のみが公開されます
+デフォルトでは 141 ツールが有効です。認証情報/ユーザー書き込みツール 4 個は明示的な opt-in が必要です。その他のツールも機密のインベントリ変数、ジョブ出力、アカウント情報を返す場合があります。書き込みの有効化前に [Credential Management](#credential-management-opt-in) と [セキュリティガイド](docs/security.ja.md) を確認してください。
 
 ---
 
 ## インストール
 
-このサーバーはパッケージインデックスに公開されていませんが、`uvx` が手動クローンや仮想環境なしで git リポジトリから直接実行してくれます。[uv](https://docs.astral.sh/uv/) が `uvx` を提供します。
+パッケージの配布元は GitHub です。現在は main branch を使うか、`@<commit-sha-or-existing-ref>` を追加して実在する revision を選択してください。初回 release 前に release tag があるとは仮定しません。
 
 ```bash
-# 1. 必須環境変数を設定
-export ANSIBLE_BASE_URL="https://awx.example.com/"
-export ANSIBLE_TOKEN="your_api_token"
-
-# 2a. ローカルモード（デフォルト — 自分専用の MCP クライアント向け stdio サーバー）
 uvx --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp
-
-# 2b. チーム向け中央サーバー（管理者）: 1 つの共有サーバー、ユーザーごとのトークン
-uvx --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp --serve --host 0.0.0.0 --port 8443
-#    エンドポイント: http://HOST:8443/mcp（--sse を付けると http://HOST:8443/sse）
-
-# 2c. 中央サーバーへ接続（利用者）: プロキシのみで、ローカルサーバーは起動しない
-uvx --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp --remote https://awx-mcp.example.com:8443/mcp
 ```
 
-`uvx` は初回フェッチ時にリポジトリをキャッシュします。後で更新を取り込むには `--refresh` を付けるか、ref を追加して（`.../awx-mcp@vX.Y.Z`）バージョンを固定してください。開発目的の場合は、リポジトリをクローンした上で `uv run --directory /path/to/awx-mcp awx-mcp`（または `uv sync` の後に `uv run awx-mcp`）を代わりに使用してください。
+`uvx` はリポジトリを取得、ビルドしてキャッシュします。main branch のキャッシュを更新する場合は一度 `--refresh` を追加してください。開発時は `uv run --directory /path/to/awx-mcp awx-mcp --stdio` を使います。その環境の `awx-mcp --version` でインストール済みバージョンを確認できます。
 
-**実行モードは CLI フラグで選択します** — 全体像は [デプロイモード](#デプロイモード) を参照してください:
+### Docker / Podman
 
-| コマンド | モード | 実行者 |
-|---------|------|-------|
-| `awx-mcp` | ローカル stdio サーバー（自分の AWX トークン） | 各ユーザーがローカルで |
-| `awx-mcp --remote <URL>` | 中央サーバーへのクライアントプロキシ | 各ユーザーがローカルで |
-| `awx-mcp --serve [--sse]` | 複数ユーザー向け中央サーバー（リクエストごとのトークン） | 管理者が一度だけ |
+現在はローカル checkout からコンテナをビルドできます。イメージの既定コマンドは中央 HTTP サーバーを起動するため、以下の stdio 実行では `--stdio` を明示してください。
 
-`--host`/`--port` は `--serve` に適用され、`AWX_MCP_HOST` / `AWX_MCP_PORT` 環境変数より優先されます。`--transport` フラグは存在しません（廃止 — [CHANGELOG](CHANGELOG.md) 参照）。
+```bash
+docker build -t awx-mcp:local .
+docker run -i --rm -e ANSIBLE_BASE_URL -e ANSIBLE_TOKEN -e AWX_MCP_READ_ONLY awx-mcp:local --stdio
+```
 
-> ローカルモードの場合、通常は MCP クライアントがプロセスを自動的に起動します（[MCP クライアント連携](#mcpクライアント連携) 参照）。手動で実行する必要はありません。
+値は環境変数で渡し、MCP stdio に `-t` は使用しないでください。GHCR イメージと tag を使うコマンドは初回 release 公開後に案内します。複数ユーザーの HTTP、プロキシ、TLS、replica の設定は [デプロイガイド](docs/deployment.ja.md) を参照してください。
 
 ---
 
 ## デプロイモード
 
-awx-mcp は CLI フラグで選択される 3 つのモードのいずれかで動作します。トークンは常に `ANSIBLE_TOKEN` で渡すユーザー自身の AWX 個人アクセストークンで、違いはフラグのみです。
+| コマンド | モード | 認証 |
+|---------|--------|------|
+| `awx-mcp` / `awx-mcp --stdio` | ローカル stdio | 自分の AWX トークン、またはユーザー名/パスワード |
+| `awx-mcp --remote <URL>` | 中央サーバーへのローカルプロキシ | 自分の AWX トークンのみ |
+| `awx-mcp --serve` | 中央 Streamable HTTP サーバー | 各リクエストの呼び出し元トークン |
 
-### 1. ローカル（デフォルト）
+中央サーバーは静的な AWX 認証情報を無視します。TLS でトークンを保護し、ネットワークアクセスを制限してください。`--host` と `--port` は環境変数より優先されます。[デプロイ例、直接 HTTP 接続、replica 設定](docs/deployment.ja.md) と [TLS およびログ](docs/security.ja.md) を参照してください。
 
-各ユーザーが、自分のトークンで AWX と通信するローカル stdio サーバーを実行します。
+### Toolset の選択と読み取り専用モード
 
-```json
-{
-  "mcpServers": {
-    "awx": {
-      "command": "uvx",
-      "args": ["--from", "git+https://github.com/lycorp-jp/awx-mcp", "awx-mcp"],
-      "env": {
-        "ANSIBLE_BASE_URL": "https://awx.example.com/",
-        "ANSIBLE_TOKEN": "your_api_token"
-      }
-    }
-  }
-}
-```
+`--toolsets jobs,job_templates` または `AWX_MCP_TOOLSETS` で公開するツールを選択します。CLI オプションが環境変数より優先され、既定値は `all` です。不明な名前や空の選択は起動時に拒否されます。`--serve` では全呼び出し元に適用されます。`--remote` では一部の toolset の選択を拒否するため、中央サーバー側で設定してください。
 
-自分のツール呼び出しをローカルにも記録したい場合は `AWX_MCP_USAGE_LOG_FILE` を設定してください。
-
-### 2. 中央サーバー — 管理者向け（`--serve`）
-
-管理者が**1 つ**の共有サーバーを実行します。サーバー自体は AWX の資格情報を保持せず、各リクエストは**呼び出し元自身のトークン**で認証され、すべてのツール呼び出しは利用ログでその呼び出し元に帰属します。呼び出し元のトークンがリクエストヘッダーで送信されるため、TLS の利用を強く推奨します。
+`--read-only` と `AWX_MCP_READ_ONLY=true` のいずれかを設定すると読み取り専用になります。ローカルと中央サーバーでは読み取りツールだけを公開します。プロキシは `X-AWX-Read-Only: true` を転送し、そのセッションを制限します。既定では AWX RBAC が許可する書き込みを含めて 141 ツールを公開します。
 
 ```bash
-export ANSIBLE_BASE_URL=https://awx.example.com/
-export AWX_MCP_USAGE_LOG_FILE=/var/log/awx-mcp/usage.jsonl   # ユーザーごとの帰属
-export AWX_MCP_TLS_ENABLE=true
-export AWX_MCP_TLS_CERT=/etc/awx-mcp/cert.pem
-export AWX_MCP_TLS_KEY=/etc/awx-mcp/key.pem
-uvx --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp --serve --host 0.0.0.0 --port 8443        # sse トランスポートを使う場合は --sse を追加
+awx-mcp --toolsets jobs,job_templates --read-only
 ```
 
-`--serve` モードでは `ANSIBLE_TOKEN` / `ANSIBLE_USERNAME` / `ANSIBLE_PASSWORD` は無視されます（設定されていると警告がログに出力されます）— サーバー自身は独自のアイデンティティを持ちません。
+<!-- TOOLSET_SUMMARY:BEGIN -->
+<!-- Generated by scripts/gen_tool_docs.py. Do not edit by hand. -->
 
-### 3. 中央サーバー — 利用者向け（`--remote`）
-
-各ユーザーは、中央サーバーへリレーする stdio **プロキシ**を実行し、自分のトークンを `Authorization: Bearer` ヘッダーとして注入します。ローカルサーバーは起動されず、中央サーバーが稼働している必要があります。
-
-```json
-{
-  "mcpServers": {
-    "awx": {
-      "command": "uvx",
-      "args": ["--from", "git+https://github.com/lycorp-jp/awx-mcp",
-               "awx-mcp", "--remote", "https://awx-mcp.example.com:8443/mcp"],
-      "env": { "ANSIBLE_TOKEN": "your_api_token" }
-    }
-  }
-}
-```
-
-`ANSIBLE_BASE_URL` は不要です（中央サーバーが AWX にアクセスします）。プロキシモードは**個人アクセストークン専用**です — `ANSIBLE_USERNAME`/`PASSWORD` は Bearer ヘッダーとして転送できません。ここでの `ANSIBLE_SSL_VERIFY`/`ANSIBLE_CA_BUNDLE` は AWX ではなく**中央サーバー**への接続を検証します。ローカルにも利用ログを残したい場合は `AWX_MCP_USAGE_LOG_FILE`（任意で `AWX_MCP_USAGE_USER`）を設定してください。
-
-> `headers` ブロックで `${VAR}` 展開をサポートする MCP クライアントであれば、プロキシを介さず中央サーバーへ直接接続できます: `{ "type": "streamable-http", "url": "https://awx-mcp.example.com:8443/mcp", "headers": { "Authorization": "Bearer ${AWX_TOKEN}" } }`。
+| Toolset | Default tools | With credential opt-in |
+|---------|---------------|------------------------|
+| `ad_hoc` | 3 | 3 |
+| `credentials` | 5 | 7 |
+| `execution_environments` | 5 | 5 |
+| `groups` | 7 | 7 |
+| `hosts` | 5 | 5 |
+| `instances` | 4 | 4 |
+| `inventories` | 14 | 14 |
+| `job_templates` | 13 | 13 |
+| `jobs` | 7 | 7 |
+| `labels` | 2 | 2 |
+| `notifications` | 3 | 3 |
+| `organizations` | 5 | 5 |
+| `projects` | 11 | 11 |
+| `rbac` | 7 | 7 |
+| `schedules` | 5 | 5 |
+| `system` | 9 | 9 |
+| `teams` | 5 | 5 |
+| `users` | 3 | 5 |
+| `workflow_jobs` | 11 | 11 |
+| `workflow_templates` | 17 | 17 |
+<!-- TOOLSET_SUMMARY:END -->
 
 ---
 
@@ -245,13 +214,13 @@ uvx --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp --serve --host 0.0.0
 
 **方法 1: API トークン（推奨）**
 
-AWX UI であらかじめ生成したトークンを使います。トークンは期限切れにならないため、より安定した方法です。
+AWX UI で事前に作成したトークンを使います。AWX の方針により期限切れや失効が発生します。必要最小限の権限と scope を選び、必要に応じて更新してください。
 
 | 変数 | 説明 |
 |------|------|
 | `ANSIBLE_TOKEN` | 事前生成済みの API トークン |
 
-> AWX UI でのトークン生成: ユーザープロフィール > トークン > 追加 > Scope: Write
+> AWX UI で作成: ユーザープロフィール > トークン > 追加。読み取り専用なら Read scope、書き込みが必要な場合だけ Write を選びます。AWX RBAC もアクセスを制限します。
 
 **方法 2: ユーザー名 + パスワード**
 
@@ -266,11 +235,13 @@ AWX UI であらかじめ生成したトークンを使います。トークン�
 
 | 変数 | デフォルト | 説明 |
 |------|-----------|------|
-| `ANSIBLE_SSL_VERIFY` | `true` | TLS 証明書検証（`true`/`false`）。検証は**デフォルトで有効**です。`false` にすると検証が無効になります（**非推奨（危険）** — 警告がログに出力されます。CA バンドルを持たない開発/自己署名環境でのみ使用してください）。 |
+| `ANSIBLE_SSL_VERIFY` | `true` | TLS 証明書検証（`true`/`false`）。検証は**デフォルトで有効**です。`false` にすると検証が無効になります（**非推奨（危険）** - 警告がログに出力されます。CA バンドルを持たない開発/自己署名環境でのみ使用してください）。 |
 | `ANSIBLE_CA_BUNDLE` | 未設定 | 検証が有効な場合に信頼するカスタム CA バンドル/自己署名証明書（PEM）へのパス。検証を無効にせずに、プライベート CA を使用する AWX インスタンスへ接続できます。パスが存在しない場合、サーバーは起動時に即座に失敗します。 |
 | `ANSIBLE_LOG_LEVEL` | `INFO` | ログレベル（`DEBUG`、`INFO`、`WARNING`、`ERROR`） |
+| `AWX_HTTP_TIMEOUT_READ` | `90` | AWX API リクエスト 1 件あたりの読み取りタイムアウト（秒）。低速な AWX で大きな `get_job_stdout` / `get_job_events` 呼び出しがタイムアウトする場合に増やします。 |
 | `AWX_MCP_ENABLE_CREDENTIAL_MANAGEMENT` | `false` | Form mode elicitation で機密データを収集する 4 つの認証情報/ユーザー書き込みツールを有効化するか。[Credential Management (opt-in)](#credential-management-opt-in) を参照。 |
-| `AWX_MCP_READ_ONLY` | `false` | 読み取り専用モード。`--serve` の中央サーバーでは、`true` にするとすべての書き込み/破壊的ツールがグローバルに登録解除されます(ユーザー側で再有効化はできません)。`--remote` プロキシモードでは、`true` はそのユーザーのセッションのみを制限します(プロキシが `X-AWX-Read-Only` を送信し、サーバーはその呼び出し元の書き込み呼び出しを拒否します)。あくまで自己制限としての機能です — [デプロイモード](#デプロイモード) を参照。 |
+| `AWX_MCP_TOOLSETS` | `all` | ツールモジュール名をカンマで区切ります。`--toolsets` が優先されます。`--serve` ではサーバー全体に適用し、`--remote` では一部の toolset の選択を拒否します。 |
+| `AWX_MCP_READ_ONLY` | `false` | 読み取り専用モード。`--serve` の中央サーバーでは、`true` にするとすべての書き込み/破壊的ツールがグローバルに登録解除されます(ユーザー側で再有効化はできません)。`--remote` プロキシモードでは、`true` はそのユーザーのセッションのみを制限します(プロキシが `X-AWX-Read-Only` を送信し、サーバーはその呼び出し元の書き込み呼び出しを拒否します)。あくまで自己制限としての機能です - [デプロイモード](docs/deployment.ja.md) を参照。 |
 | `AWX_MCP_REMOTE_URL` | 未設定 | プロキシモード用の中央サーバー URL(`--remote <URL>` と同等。フラグの方が優先されます)。 |
 | `AWX_MCP_HOST` | `127.0.0.1` | `--serve` サーバーのバインドホスト。`--host` で上書きされます。 |
 | `AWX_MCP_PORT` | `8000` | `--serve` サーバーのバインドポート。`--port` で上書きされます。 |
@@ -279,51 +250,22 @@ AWX UI であらかじめ生成したトークンを使います。トークン�
 | `AWX_MCP_TLS_KEY` | 未設定 | サーバー TLS 秘密鍵（PEM）へのパス。TLS が有効な場合に必須です。 |
 | `AWX_MCP_TLS_KEY_PASSWORD` | 未設定 | 秘密鍵が暗号化されている場合のパスワード。任意。 |
 | `AWX_MCP_STATELESS_HTTP` | `false` | ステートレス streamable-http モード。各リクエストが自己完結し、プロセスにセッションごとの状態を保持しません。単純なラウンドロビン型ロードバランサーの背後で複数の `--serve` レプリカを運用する場合に必要です（そうしないと、あるレプリカで作成されたセッションが別のレプリカにルーティングされた際に 404 になります）。デフォルト（off）では、単一インスタンス / sse 構成のステートフルなセッション動作がそのまま維持されます。 |
-| `AWX_MCP_USAGE_LOG_FILE` | 未設定 | JSON Lines 形式の利用ログファイルへのパス。MCP ツール呼び出しごとに 1 件の JSON ドキュメント（`@timestamp`、`type`、`user`、`tool`、`params`（マスキングされた呼び出し引数）、`trace_id`、`server_version`、`success`、`latency_ms`、`auth_mode`、`transport`、`awx_host`、失敗時の `error{type,message}`）が記録されます。`--remote` プロキシを含むすべてのモードで動作します。未設定の場合は計装が無効になります。[詳細利用ログ](#詳細利用ログ) を参照。 |
+| `AWX_MCP_USAGE_LOG_FILE` | 未設定 | `--remote` プロキシを含むすべてのモードで任意に設定する、ローテーション付き JSON Lines 利用ログファイルへのパス。MCP ツール呼び出しごとに 1 件の JSON ドキュメント（`@timestamp`、`type`、`user`、`tool`、`params`（マスキングされた呼び出し引数）、`trace_id`、`server_version`、`success`、`latency_ms`、`auth_mode`、`transport`、`awx_host`、失敗時の `error{type,message}`）が記録されます。中央 `--serve` モード（`streamable-http` または `sse`）ではツールと内部 API の利用記録が常に stdout に出力され、このパスはファイル出力を追加します。未設定で利用ログが無効になるのは、ローカル stdio とプロキシモードだけです。[詳細利用ログ](docs/security.ja.md#詳細利用ログ) を参照してください。 |
 | `AWX_MCP_USAGE_USER` | 未設定 | プロキシのローカル利用ログで `user` フィールドに使うラベル（プロキシモードにはユーザー名を解決する AWX アクセスがないため、デフォルトは `local`）。 |
-| `AWX_MCP_ACCESS_LOG_FILE` | 未設定 | `--serve` サーバー用の JSON Lines アクセスログファイルへのパス。受信したすべての HTTP リクエストが記録されます（クライアント IP、メソッド、パス、ステータス、レイテンシ）。利用ログと同様に、毎日深夜（UTC）にローテーションします。`--serve` モードでのみ有効です — stdio と `--remote` プロキシには HTTP ソケットがありません。 |
+| `AWX_MCP_ACCESS_LOG_FILE` | 未設定 | `--serve` サーバーで任意に追加する JSON Lines アクセスログファイルへのパス。このパスが未設定でも、受信したすべての HTTP リクエストは stdout に記録されます（クライアント IP、メソッド、パス、ステータス、レイテンシ）。ファイルは利用ログと同様に、毎日深夜（UTC）にローテーションします。`--serve` モードでのみ有効で、ローカル stdio と `--remote` プロキシにはインバウンド HTTP ソケットがありません。 |
 | `AWX_MCP_SERVER_LOG_FILE` | 未設定 | サーバー診断ログファイルへのパス。既存の stderr 診断・エラー出力をそのままファイルにも記録します。未設定の場合は stderr のみで、ファイルは作成されません。 |
 | `AWX_MCP_SERVER_LOG_FORMAT` | `plain` | サーバー診断ログの形式: `plain` または `json`。 |
 | `AWX_MCP_LOG_BACKUP_COUNT` | `7` | ローテーションしたログファイルの保持数。両方のログファイルは毎日 UTC 深夜 0 時に日付サフィックス付きでローテーションされます。 |
 
 ### TLS / 証明書検証
 
-TLS 証明書検証は**デフォルトで有効**です（`ANSIBLE_SSL_VERIFY=true`）。AWX インスタンスがプライベート/内部 CA が発行した証明書（または自己署名証明書）を使用している場合は、`ANSIBLE_CA_BUNDLE` に CA バンドル（PEM）のパスを設定してください — 検証を有効にしたままそのCAを信頼できるようになり、検証を無効化するより推奨される方法です。
-
-`ANSIBLE_SSL_VERIFY=false` を設定すると検証が完全に無効になります。この値が使用されるたびにサーバーが警告をログに出力するため、開発環境でのみ使用してください。スキームのない `ANSIBLE_BASE_URL` ホストは自動的に `https://` へ引き上げられます。明示的な `http://` URL はそのまま使用されますが、API トークンが暗号化されずに送信されるため、サーバーが警告をログに出力します。
-
-### HTTPS で配信（インバウンド TLS）
-
-これは**インバウンド** TLS です — MCP クライアントからこのサーバーへの接続を暗号化するもので、`ANSIBLE_SSL_VERIFY` が制御するアウトバウンドの AWX 証明書検証とは方向が異なります。両者を混同しないでください。
-
-`--serve` の中央サーバー（streamable-http または sse）にのみ適用されます。ローカル stdio モードはネットワークソケットを持たないローカルパイプであるため TLS は適用されず、セキュリティはプロセス/ホストの分離によって確保されます。
-
-有効化するには、`AWX_MCP_TLS_ENABLE=true` とともに `AWX_MCP_TLS_CERT`、`AWX_MCP_TLS_KEY` を設定してください（鍵が暗号化されている場合は `AWX_MCP_TLS_KEY_PASSWORD` も設定）:
-
-```bash
-export AWX_MCP_TLS_ENABLE=true
-export AWX_MCP_TLS_CERT=/path/to/server.crt
-export AWX_MCP_TLS_KEY=/path/to/server.key
-uvx --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp --serve --host 0.0.0.0 --port 8443
-```
-
-**重要:** `--serve` モードでは各リクエストが `Authorization` ヘッダー内の呼び出し元自身の AWX トークンによって*実際に認証*されており、TLS はそのトークンを転送時に保護します。そのため、ネットワークに公開するデプロイでは TLS を有効化する（または認証機能を持つ TLS リバースプロキシの背後に配置する）ことは任意ではなく重要です。ループバック以外にバインドしつつ TLS が無効な場合、起動時に警告がログに出力されます。Kubernetes では ingress で TLS を終端するのが一般的な方法であり、プロセス内 TLS は Pod までのエンドツーエンド暗号化が必要な場合にのみ必要です。
-
-### 詳細利用ログ
-
-利用ログは opt-in 方式です。`AWX_MCP_USAGE_LOG_FILE` に書き込み可能なパスを設定すると、ツール呼び出しごとに 1 件の JSON ドキュメントを [JSON Lines](https://jsonlines.org/) 形式で記録し始めます。この形式は Filebeat や Fluentd などの外部ログ収集基盤が後で収集・集計しやすいように設計されています。ログが stdout に出力されることはありません — MCP stdio トランスポートはプロトコルメッセージの送受信に stdout を使用するため、ここにログを書き込むとプロトコルストリームが破損します。サーバー自体がログデータをネットワーク経由で送信することもなく、設定したローカルファイルにのみ書き込みます。
-
-すべてのログ行には `type` フィールドがあり、種類ごとに分離できます: `"tool"`（通常の MCP ツール呼び出し）、`"internal_api"`（サーバーが呼び出す `/api/v2/me/` ユーザー解決リクエスト。`tool: "me"` として記録し、HTTP メソッドとパスは別の `method`/`endpoint` フィールドに記録）、`"access"`（HTTP アクセスログ）、`"diagnostic"`（サーバー診断ログ）。`type` フィールドと共通の `@timestamp` タイムスタンプフィールドは 4 種類のレコードで一貫しているため、単一のログインデックスを type でフィルタできます。ツール呼び出しレコードには `params`（呼び出し引数）も含まれ、秘密を示すキー（password、token、key、`inputs` など）や文字列内の `token=`/`password=`/`Bearer` の値はマスキングされます。
-
-`auth_mode` フィールドは `static`（ローカル）または `passthrough`（`--serve`）です。`transport` フィールドは `stdio`、`streamable-http`、`sse`、`proxy` のいずれかです。中央サーバーでは、`user` フィールドは各リクエストのトークンに紐づく AWX アカウントです（ユーザーごとの帰属。トークンごとに一度だけ解決してキャッシュされ、生のトークンやそのハッシュがログに残ることはありません）。`--remote` プロキシ自身のローカルログでは、`transport` は `proxy`、`user` は `AWX_MCP_USAGE_USER`（未設定なら `local`）、`awx_host` は中央サーバーのホストになります。
-
-> **複数の `--serve` レプリカを運用する場合:** 利用ログ・アクセスログ・診断ログはいずれも `TimedRotatingFileHandler` を使用します。スレッドセーフではありますが、共有ボリューム上では**マルチプロセスセーフではありません** — 深夜のローテーション時に複数の書き込みプロセスが競合する可能性があります。各レプリカのログファイルパスを Pod ごとのパスに向けるか、未設定のまま stdout 収集に任せてください。
+TLS 証明書検証は既定で有効です。プライベート CA は `ANSIBLE_CA_BUNDLE` で信頼させてください。`--remote` ではこの検証設定は AWX ではなく中央サーバーに適用されます。ネットワークに公開する中央サーバーには TLS とアクセス制限が必要です。中央 `--serve` モード（`streamable-http` または `sse`）は利用/アクセス JSONL を常に stdout に出力します。ファイル設定はローテーション付きのファイル出力を追加し、stdout 出力を無効にはしません。ローカル stdio と `--remote` プロキシでは stdout を MCP メッセージ専用に使い、利用ファイルログはパスを設定した場合だけ記録します。診断ログは既定で stderr に出力します。コンテナーやプラットフォームのログ収集基盤は stdout/stderr を収集できます。[TLS、ログフィールド、マスキングの限界、replica の注意事項](docs/security.ja.md) を参照してください。
 
 ---
 
 ## Credential Management (opt-in)
 
-4 つのツール — `create_credential`、`update_credential`、`create_user`、`update_user` — は **Form mode elicitation** でパスワードや認証情報入力などの機密データを収集します。これらはデフォルトでは**登録されない**ため、デフォルトの 141 ツール構成は機密データを扱うツールを一切公開しません。
+`create_credential`、`update_credential`、`create_user`、`update_user` は **Form mode elicitation** でパスワードや認証情報入力を収集するため、既定では登録されません。その他のツールもジョブ stdout やインベントリ変数などの機密データを返す場合があります。
 
 有効化するには以下を設定してください:
 
@@ -365,6 +307,54 @@ claude mcp add awx \
   -- uvx --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp
 ```
 
+### Cursor
+
+以下のリンクは**読み取り専用の設定テンプレート**を追加します。接続設定はまだ完了しません。起動前に Cursor の MCP 設定で `REPLACE_WITH_YOUR_AWX_HTTPS_URL` と `REPLACE_WITH_YOUR_AWX_TOKEN` を**両方とも置換してください**。この設定を version control に含めないでください。
+
+cursor://anysphere.cursor-deeplink/mcp/install?name=awx&config=eyJjb21tYW5kIjoidXZ4IiwiYXJncyI6WyItLWZyb20iLCJnaXQraHR0cHM6Ly9naXRodWIuY29tL2x5Y29ycC1qcC9hd3gtbWNwIiwiYXd4LW1jcCJdLCJlbnYiOnsiQU5TSUJMRV9CQVNFX1VSTCI6IlJFUExBQ0VfV0lUSF9ZT1VSX0FXWF9IVFRQU19VUkwiLCJBTlNJQkxFX1RPS0VOIjoiUkVQTEFDRV9XSVRIX1lPVVJfQVdYX1RPS0VOIiwiQVdYX01DUF9SRUFEX09OTFkiOiJ0cnVlIn19
+
+公式の形式: https://cursor.com/docs/mcp/install-links
+
+### VS Code (native MCP)
+
+`.vscode/mcp.json` またはユーザー MCP 設定に追加します。VS Code が URL とトークンの入力を求め、トークン入力は非表示になります。`env` の参照は以下の `inputs` に対応します。
+
+```json
+{
+  "inputs": [
+    {
+      "id": "awx-url",
+      "type": "promptString",
+      "description": "AWX HTTPS ベース URL"
+    },
+    {
+      "id": "awx-token",
+      "type": "promptString",
+      "description": "AWX API トークン",
+      "password": true
+    }
+  ],
+  "servers": {
+    "awx": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/lycorp-jp/awx-mcp",
+        "awx-mcp"
+      ],
+      "env": {
+        "ANSIBLE_BASE_URL": "${input:awx-url}",
+        "ANSIBLE_TOKEN": "${input:awx-token}",
+        "AWX_MCP_READ_ONLY": "true"
+      }
+    }
+  }
+}
+```
+
+設定リファレンス: https://code.visualstudio.com/docs/agents/reference/mcp-configuration
+
 ### Cline（VS Code）
 
 MCP サーバー設定に以下を追加します:
@@ -384,40 +374,7 @@ MCP サーバー設定に以下を追加します:
 
 ### 中央サーバーへの接続
 
-管理者が中央の `awx-mcp --serve` インスタンスを運用している場合、ユーザーは 2 通りの方法で接続できます。どちらもユーザー自身の AWX トークンを送信しますが、推奨されるプロキシ方式ではトークンを環境変数に保持でき、あらゆる MCP クライアントで動作します。
-
-**プロキシ（推奨）** — ローカル stdio プロセス。トークンは `ANSIBLE_TOKEN` に保持されます:
-
-```json
-{
-  "mcpServers": {
-    "awx": {
-      "command": "uvx",
-      "args": ["--from", "git+https://github.com/lycorp-jp/awx-mcp",
-               "awx-mcp", "--remote", "https://awx-mcp.example.com:8443/mcp"],
-      "env": { "ANSIBLE_TOKEN": "your_api_token" }
-    }
-  }
-}
-```
-
-**Direct HTTP** — `headers` ブロックで `${VAR}` 展開をサポートする MCP クライアント向け（ローカルプロセスなし）:
-
-```json
-{
-  "mcpServers": {
-    "awx": {
-      "type": "streamable-http",
-      "url": "https://awx-mcp.example.com:8443/mcp",
-      "headers": { "Authorization": "Bearer ${AWX_TOKEN}" }
-    }
-  }
-}
-```
-
-sse トランスポート（`awx-mcp --serve --sse`）の場合は `"type": "sse"` と `/sse` エンドポイントを使用してください。
-
-> **セキュリティ（重要）:** `--serve` モードでは各リクエストが呼び出し元自身の AWX トークンで認証され、AWX の RBAC がユーザーごとに適用されます。そのトークンはリクエストヘッダーで送信されるため、トランスポートを保護してください: プロセス内 TLS（`AWX_MCP_TLS_ENABLE`）を有効にするか、認証機能を持つ TLS リバースプロキシの背後に配置し、ファイアウォールでポートアクセスを制限してください。サーバーはデフォルトで `127.0.0.1` にバインドされ、TLS なしでループバック以外にバインドすると警告をログに出力します。
+自分の AWX トークンで stdio プロキシ、または直接 Streamable HTTP 接続を使います。プロキシには `ANSIBLE_TOKEN` が必要ですが `ANSIBLE_BASE_URL` は不要です。ユーザー名/パスワード認証はローカルモードのみです。[プロキシ/直接 HTTP の完全な設定と TLS 要件](docs/deployment.ja.md) を参照してください。
 
 ---
 
@@ -497,257 +454,313 @@ MCP クライアント（Claude など）に自然言語でリクエストする
 
 ---
 
+## Resource と runbook prompt
+
+ローカル stdio、中央 HTTP/SSE サーバー、stdio proxy は同じ読み取り専用 resource と runbook prompt を公開します。Toolset の選択はこれらの capability にも適用されます。読み取り専用モードでも利用できます。中央サーバーは各リクエストの呼び出し元トークンと AWX 権限で resource を読み取り、サーバーの認証情報には切り替えません。
+
+`resources/templates/list` で 5 つの URI template を確認し、読み取りツールで取得した ID を指定してください。各 resource は ID で指定するため、`resources/list` は空の一覧を返します。
+
+| URI template | 内容 | 必要な toolset |
+|---|---|---|
+| `awx://jobs/{id}` | Job の詳細、`application/json` | `jobs` |
+| `awx://jobs/{id}/stdout` | Job の実行出力、`text/plain` | `jobs` |
+| `awx://inventories/{id}` | Inventory の詳細、`application/json` | `inventories` |
+| `awx://inventory-sources/{id}` | Inventory source の詳細、`application/json` | `inventories` |
+| `awx://projects/{id}` | Project の詳細、`application/json` | `projects` |
+
+Runbook は `prompts/list` と `prompts/get` で取得します。必要な toolset がすべて有効な場合にのみ公開されます。Prompt の生成時に AWX は呼び出されません。生成される指示は読み取りの確認手順を案内し、書き込みの前にユーザーの明示的な確認を求めます。
+
+| Prompt | 必須引数 | 読み取りの確認手順 | 必要な toolset |
+|---|---|---|---|
+| `failed_job_triage` | `job_id` | 状態、stdout、event、host ごとの結果を確認 | `jobs` |
+| `pre_change_inventory_check` | `inventory_id` | Inventory、host、group、source の状態を確認 | `inventories`, `hosts`, `groups` |
+| `project_sync_review` | `project_id` | SCM revision、sync 履歴、ログ、playbook を確認 | `projects` |
+
+初期化済みの Python MCP `ClientSession` では次のように呼び出します。
+
+```python
+await session.read_resource("awx://jobs/42/stdout")
+await session.get_prompt("failed_job_triage", {"job_id": "42"})
+```
+
+Proxy は upstream の pagination、resource の内容と metadata を保持します。Resource の購読と変更通知は中継しません。
+
 ## ツール一覧
 
 合計 **145 個**のツールを 20 モジュールで提供します。デフォルトでは 141 個が登録され、以下の **opt-in** とマークされた 4 つは `AWX_MCP_ENABLE_CREDENTIAL_MANAGEMENT=true` の場合のみ公開されます（[Credential Management (opt-in)](#credential-management-opt-in) 参照）。
 
+### 名前で検索する
+
+名前を持つコレクションを扱うすべての `list_*` ツールは、任意の名前引数を受け取ります。
+AWX が**サーバーサイド**で大文字小文字を区別しない部分一致として適用するため、
+コレクションをページ送りせずに 1 回の呼び出しで名前を ID に解決できます。
+
+```
+list_job_templates(template_name="deploy")      -> "deploy" に一致するテンプレートのみ
+list_projects(project_name="platform")          -> "platform" に一致するプロジェクトのみ
+```
+
+引数名はリソースに応じて決まります（`project_name`、`inventory_name`、
+`credential_name` など）。`list_hosts` と `list_instances` は `hostname`、
+`list_users` は `username` を使用します。引数を省略した場合は従来どおり全件を
+一覧します。
+
+名前フィルターを持たないものが 2 種類あります。`list_roles` は、AWX がロール名を
+保存せず role フィールドから導出するためフィルターできません。実行記録の一覧
+（`list_jobs`、`list_project_updates` など）は、名前ではなくステータスと親
+テンプレートで照会します。
+
 <details>
 <summary><strong>145個すべてのツールを表示</strong></summary>
 
-### インベントリ & インベントリソース管理（14）- `inventories.py`
+<!-- TOOL_TABLES:BEGIN -->
+<!-- Generated by scripts/gen_tool_docs.py. Do not edit by hand. -->
 
-| ツール | 説明 |
-|--------|------|
-| `list_inventories` | インベントリ一覧を取得 |
-| `get_inventory` | 特定のインベントリの詳細を取得 |
-| `create_inventory` | 新しいインベントリを作成 |
-| `update_inventory` | インベントリを更新 |
-| `delete_inventory` | インベントリを削除 |
-| `list_inventory_sources` | インベントリソース一覧を取得 |
-| `get_inventory_source` | 特定のインベントリソースの詳細を取得 |
-| `create_inventory_source` | 新しいインベントリソースを作成 |
-| `update_inventory_source` | インベントリソースを更新 |
-| `sync_inventory_source` | インベントリソースを同期 |
-| `delete_inventory_source` | インベントリソースを削除 |
-| `list_inventory_updates` | インベントリ更新（同期）履歴を取得 |
-| `get_inventory_update` | 特定のインベントリ更新の詳細を取得 |
-| `cancel_inventory_update` | 実行中のインベントリ更新をキャンセル |
+### `ad_hoc` (3 tools, 3 default)
 
-### ホスト管理（5）- `hosts.py`
+| Tool | Access | Summary |
+|------|--------|---------|
+| `cancel_ad_hoc_command` | Write | Cancel a running AWX ad hoc command. |
+| `get_ad_hoc_command` | Read | Get details for one AWX ad hoc command. |
+| `run_ad_hoc_command` | Write | Run an AWX ad hoc command. |
 
-| ツール | 説明 |
-|--------|------|
-| `list_hosts` | ホスト一覧（インベントリでフィルタ可能） |
-| `get_host` | 特定のホストの詳細を取得 |
-| `create_host` | 新しいホストを作成（変数含む） |
-| `update_host` | ホストを更新 |
-| `delete_host` | ホストを削除 |
+### `credentials` (7 tools, 5 default)
 
-### グループ管理（7）- `groups.py`
+| Tool | Access | Summary |
+|------|--------|---------|
+| `copy_credential` | Write | Copy an AWX credential. |
+| `create_credential` | Write (opt-in) | Create an AWX credential. |
+| `delete_credential` | Write | Delete an AWX credential. |
+| `get_credential` | Read | Get details for one AWX credential. |
+| `list_credential_types` | Read | List AWX credential types. |
+| `list_credentials` | Read | List AWX credentials. |
+| `update_credential` | Write (opt-in) | Update AWX credential metadata or inputs. |
 
-| ツール | 説明 |
-|--------|------|
-| `list_groups` | インベントリ内のグループ一覧 |
-| `get_group` | 特定のグループの詳細を取得 |
-| `create_group` | 新しいグループを作成（変数含む） |
-| `update_group` | グループを更新 |
-| `delete_group` | グループを削除 |
-| `add_host_to_group` | ホストをグループに追加 |
-| `remove_host_from_group` | グループからホストを削除 |
+### `execution_environments` (5 tools, 5 default)
 
-### ジョブテンプレート管理（13）- `job_templates.py`
+| Tool | Access | Summary |
+|------|--------|---------|
+| `create_execution_environment` | Write | Create an AWX execution environment. |
+| `delete_execution_environment` | Write | Delete an AWX execution environment. |
+| `get_execution_environment` | Read | Get details for one AWX execution environment. |
+| `list_execution_environments` | Read | List AWX execution environments. |
+| `update_execution_environment` | Write | Update an AWX execution environment. |
 
-| ツール | 説明 |
-|--------|------|
-| `list_job_templates` | ジョブテンプレート一覧 |
-| `get_job_template` | 特定のジョブテンプレートの詳細を取得 |
-| `create_job_template` | 新しいジョブテンプレートを作成 |
-| `update_job_template` | ジョブテンプレートを更新 |
-| `delete_job_template` | ジョブテンプレートを削除 |
-| `launch_job` | ジョブテンプレートからジョブを実行 |
-| `copy_job_template` | ジョブテンプレートをコピー |
-| `get_job_template_survey` | ジョブテンプレートのサーベイを取得 |
-| `set_job_template_survey` | ジョブテンプレートのサーベイを設定 |
-| `delete_job_template_survey` | ジョブテンプレートのサーベイを削除 |
-| `list_template_credentials` | テンプレートに関連付けられた認証情報一覧 |
-| `associate_credential_with_template` | テンプレートに認証情報を関連付け |
-| `disassociate_credential_from_template` | テンプレートから認証情報を解除 |
+### `groups` (7 tools, 7 default)
 
-### ジョブ管理（7）- `jobs.py`
+| Tool | Access | Summary |
+|------|--------|---------|
+| `add_host_to_group` | Write | Associate an existing AWX host with a group. |
+| `create_group` | Write | Create an AWX group inside an inventory. |
+| `delete_group` | Write | Delete an AWX group. |
+| `get_group` | Read | Get details for one AWX group. |
+| `list_groups` | Read | List AWX inventory groups. |
+| `remove_host_from_group` | Write | Remove AWX host membership from a group. |
+| `update_group` | Write | Update AWX group metadata and variables. |
 
-| ツール | 説明 |
-|--------|------|
-| `list_jobs` | ジョブ一覧（ステータスでフィルタ可能） |
-| `get_job` | 特定のジョブの詳細を取得 |
-| `cancel_job` | 実行中のジョブをキャンセル |
-| `relaunch_job` | 完了/失敗したジョブを再実行 |
-| `get_job_events` | ジョブイベント一覧 |
-| `get_job_stdout` | ジョブの標準出力を取得（txt/html/json/ansi） |
-| `get_job_host_summaries` | ホスト別のジョブ結果サマリーを取得 |
+### `hosts` (5 tools, 5 default)
 
-### プロジェクト管理（11）- `projects.py`
+| Tool | Access | Summary |
+|------|--------|---------|
+| `create_host` | Write | Create an AWX host in an inventory. |
+| `delete_host` | Write | Delete an AWX host. |
+| `get_host` | Read | Get details for one AWX host. |
+| `list_hosts` | Read | List AWX hosts. |
+| `update_host` | Write | Update AWX host metadata and variables. |
 
-| ツール | 説明 |
-|--------|------|
-| `list_projects` | プロジェクト一覧 |
-| `get_project` | 特定のプロジェクトの詳細を取得 |
-| `create_project` | 新しいプロジェクトを作成（Git/SVN/Hg/手動） |
-| `update_project` | プロジェクトを更新 |
-| `delete_project` | プロジェクトを削除 |
-| `sync_project` | SCM ソースとプロジェクトを同期 |
-| `list_project_playbooks` | プロジェクト内のプレイブック一覧 |
-| `list_project_updates` | プロジェクト更新（同期）履歴を取得 |
-| `get_project_update` | 特定のプロジェクト更新の詳細を取得 |
-| `cancel_project_update` | 実行中のプロジェクト更新をキャンセル |
-| `get_project_update_stdout` | プロジェクト更新の標準出力を取得 |
+### `instances` (4 tools, 4 default)
 
-### 認証情報管理（7: デフォルト 5 + opt-in 2）- `credentials.py`
+| Tool | Access | Summary |
+|------|--------|---------|
+| `get_instance` | Read | Get details for one AWX cluster instance. |
+| `get_instance_group` | Read | Get details for one AWX instance group. |
+| `list_instance_groups` | Read | List AWX instance groups. |
+| `list_instances` | Read | List AWX cluster instances. |
 
-| ツール | 説明 |
-|--------|------|
-| `list_credentials` | 認証情報一覧 |
-| `get_credential` | 特定の認証情報の詳細を取得 |
-| `list_credential_types` | 認証情報タイプ一覧 |
-| `create_credential` | **opt-in.** 新しい認証情報を作成（elicitation で機密入力を収集） |
-| `update_credential` | **opt-in.** 認証情報を更新（elicitation で機密入力を収集する場合あり） |
-| `delete_credential` | 認証情報を削除 |
-| `copy_credential` | 認証情報をコピー |
+### `inventories` (14 tools, 14 default)
 
-### 組織管理（5）- `organizations.py`
+| Tool | Access | Summary |
+|------|--------|---------|
+| `cancel_inventory_update` | Write | Cancel a running AWX inventory update. |
+| `create_inventory` | Write | Create an AWX inventory in an organization. |
+| `create_inventory_source` | Write | Create an AWX inventory source for dynamic host sync. |
+| `delete_inventory` | Write | Delete an AWX inventory. |
+| `delete_inventory_source` | Write | Delete an AWX inventory source. |
+| `get_inventory` | Read | Get details for one AWX inventory. |
+| `get_inventory_source` | Read | Get details for one AWX inventory source. |
+| `get_inventory_update` | Read | Get details for one AWX inventory update. |
+| `list_inventories` | Read | List AWX inventories. |
+| `list_inventory_sources` | Read | List AWX inventory sources. |
+| `list_inventory_updates` | Read | List AWX inventory source sync history. |
+| `sync_inventory_source` | Write | Start an AWX inventory source sync. |
+| `update_inventory` | Write | Update AWX inventory metadata. |
+| `update_inventory_source` | Write | Update an existing AWX inventory source. |
 
-| ツール | 説明 |
-|--------|------|
-| `list_organizations` | 組織一覧 |
-| `get_organization` | 特定の組織の詳細を取得 |
-| `create_organization` | 新しい組織を作成 |
-| `update_organization` | 組織を更新 |
-| `delete_organization` | 組織を削除 |
+### `job_templates` (13 tools, 13 default)
 
-### チーム管理（5）- `teams.py`
+| Tool | Access | Summary |
+|------|--------|---------|
+| `associate_credential_with_template` | Write | Associate a credential with an AWX job template. |
+| `copy_job_template` | Write | Create a copy of an AWX job template. |
+| `create_job_template` | Write | Create an AWX job template for single playbook execution. |
+| `delete_job_template` | Write | Delete an AWX job template. |
+| `delete_job_template_survey` | Write | Delete the survey spec from an AWX job template. |
+| `disassociate_credential_from_template` | Write | Disassociate a credential from an AWX job template. |
+| `get_job_template` | Read | Get details for a specific AWX job template. |
+| `get_job_template_survey` | Read | Get the survey spec for an AWX job template. |
+| `launch_job` | Write | Launch a single AWX playbook execution from a job template. |
+| `list_job_templates` | Read | List AWX job templates for single playbook executions. |
+| `list_template_credentials` | Read | List credentials attached to an AWX job template. |
+| `set_job_template_survey` | Write | Set the survey spec for an AWX job template. |
+| `update_job_template` | Write | Update an existing AWX job template. |
 
-| ツール | 説明 |
-|--------|------|
-| `list_teams` | チーム一覧（組織でフィルタ可能） |
-| `get_team` | 特定のチームの詳細を取得 |
-| `create_team` | 新しいチームを作成 |
-| `update_team` | チームを更新 |
-| `delete_team` | チームを削除 |
+### `jobs` (7 tools, 7 default)
 
-### ユーザー管理（5: デフォルト 3 + opt-in 2）- `users.py`
+| Tool | Access | Summary |
+|------|--------|---------|
+| `cancel_job` | Write | Cancel a running AWX regular playbook job. |
+| `get_job` | Read | Get details for a single AWX playbook execution job. |
+| `get_job_events` | Read | Get event stream records for a specific AWX regular job. |
+| `get_job_host_summaries` | Read | Get AWX per-host result summaries for a regular playbook job. |
+| `get_job_stdout` | Read | Get stdout logs for a specific AWX regular playbook job. |
+| `list_jobs` | Read | List AWX regular playbook jobs, optionally filtered by status. |
+| `relaunch_job` | Write | Relaunch a completed or failed AWX regular playbook job. |
 
-| ツール | 説明 |
-|--------|------|
-| `list_users` | ユーザー一覧 |
-| `get_user` | 特定のユーザーの詳細を取得 |
-| `create_user` | **opt-in.** 新しいユーザーを作成（elicitation でパスワードを収集） |
-| `update_user` | **opt-in.** ユーザーを更新（elicitation でパスワードを収集する場合あり） |
-| `delete_user` | ユーザーを削除 |
+### `labels` (2 tools, 2 default)
 
-### Ad Hoc コマンド（3）- `ad_hoc.py`
+| Tool | Access | Summary |
+|------|--------|---------|
+| `create_label` | Write | Create an AWX label in an organization. |
+| `list_labels` | Read | List AWX labels. |
 
-| ツール | 説明 |
-|--------|------|
-| `run_ad_hoc_command` | Ad hoc Ansible コマンドを実行 |
-| `get_ad_hoc_command` | Ad hoc コマンドの詳細を取得 |
-| `cancel_ad_hoc_command` | 実行中の Ad hoc コマンドをキャンセル |
+### `notifications` (3 tools, 3 default)
 
-### ワークフローテンプレート & ノード管理（17）- `workflow_templates.py`
+| Tool | Access | Summary |
+|------|--------|---------|
+| `get_notification_template` | Read | Get details for one AWX notification template. |
+| `list_notification_templates` | Read | List AWX notification templates. |
+| `test_notification_template` | Write | Send a test event through an AWX notification template. |
 
-| ツール | 説明 |
-|--------|------|
-| `list_workflow_templates` | ワークフローテンプレート一覧 |
-| `get_workflow_template` | 特定のワークフローテンプレートの詳細を取得 |
-| `create_workflow_template` | 新しいワークフローテンプレートを作成 |
-| `update_workflow_template` | ワークフローテンプレートを更新 |
-| `delete_workflow_template` | ワークフローテンプレートを削除 |
-| `launch_workflow` | ワークフローを実行 |
-| `copy_workflow_template` | ワークフローテンプレートをコピー |
-| `get_workflow_template_survey` | ワークフローのサーベイを取得 |
-| `set_workflow_template_survey` | ワークフローのサーベイを設定 |
-| `delete_workflow_template_survey` | ワークフローのサーベイを削除 |
-| `list_workflow_template_nodes` | ワークフローノード一覧 |
-| `get_workflow_template_node` | 特定のノードの詳細を取得 |
-| `create_workflow_template_node` | 新しいノードを作成 |
-| `delete_workflow_template_node` | ノードを削除 |
-| `add_workflow_node_success_link` | 成功時に実行するノードをリンク |
-| `add_workflow_node_failure_link` | 失敗時に実行するノードをリンク |
-| `add_workflow_node_always_link` | 常に実行するノードをリンク |
+### `organizations` (5 tools, 5 default)
 
-### ワークフロージョブ & 承認（11）- `workflow_jobs.py`
+| Tool | Access | Summary |
+|------|--------|---------|
+| `create_organization` | Write | Create an AWX organization. |
+| `delete_organization` | Write | Delete an AWX organization. |
+| `get_organization` | Read | Get details for one AWX organization. |
+| `list_organizations` | Read | List AWX organizations. |
+| `update_organization` | Write | Update an AWX organization. |
 
-| ツール | 説明 |
-|--------|------|
-| `list_workflow_jobs` | ワークフロージョブ一覧（ステータスでフィルタ可能） |
-| `get_workflow_job` | 特定のワークフロージョブの詳細を取得 |
-| `cancel_workflow_job` | 実行中のワークフロージョブをキャンセル |
-| `relaunch_workflow_job` | 完了/失敗したワークフロージョブを再実行 |
-| `list_workflow_job_nodes` | 実行済みワークフローのノード一覧（デバッグ用） |
-| `list_workflow_approvals` | ワークフロー承認リクエスト一覧 |
-| `get_workflow_approval` | 特定の承認リクエストの詳細を取得 |
-| `approve_workflow` | ワークフローを承認 |
-| `deny_workflow` | ワークフローを拒否 |
-| `list_workflow_approval_templates` | ワークフロー承認テンプレート一覧 |
-| `get_workflow_approval_template` | 特定の承認テンプレートの詳細を取得 |
+### `projects` (11 tools, 11 default)
 
-### スケジュール管理（5）- `schedules.py`
+| Tool | Access | Summary |
+|------|--------|---------|
+| `cancel_project_update` | Write | Cancel a running AWX project update. |
+| `create_project` | Write | Create an AWX project for playbook content. |
+| `delete_project` | Write | Delete an AWX project. |
+| `get_project` | Read | Get details for one AWX project. |
+| `get_project_update` | Read | Get details for one AWX project update. |
+| `get_project_update_stdout` | Read | Get AWX stdout logs for a project update. |
+| `list_project_playbooks` | Read | List AWX playbooks discovered in a project. |
+| `list_project_updates` | Read | List AWX project SCM sync history. |
+| `list_projects` | Read | List AWX projects. |
+| `sync_project` | Write | Start an AWX project SCM sync. |
+| `update_project` | Write | Update AWX project metadata and SCM settings. |
 
-| ツール | 説明 |
-|--------|------|
-| `list_schedules` | スケジュール一覧（テンプレートでフィルタ可能） |
-| `get_schedule` | 特定のスケジュールの詳細を取得 |
-| `create_schedule` | 新しいスケジュールを作成（iCal rrule） |
-| `update_schedule` | スケジュールを更新 |
-| `delete_schedule` | スケジュールを削除 |
+### `rbac` (7 tools, 7 default)
 
-### 実行環境（5）- `execution_environments.py`
+| Tool | Access | Summary |
+|------|--------|---------|
+| `get_role` | Read | Get details for one AWX RBAC role. |
+| `grant_role_to_team` | Write | Grant an AWX role to a team. |
+| `grant_role_to_user` | Write | Grant an AWX role to a user. |
+| `list_object_roles` | Read | List AWX RBAC roles for one specific resource. |
+| `list_roles` | Read | List all AWX RBAC roles. |
+| `revoke_role_from_team` | Write | Revoke an AWX role from a team. |
+| `revoke_role_from_user` | Write | Revoke an AWX role from a user. |
 
-| ツール | 説明 |
-|--------|------|
-| `list_execution_environments` | 実行環境一覧 |
-| `get_execution_environment` | 特定の実行環境の詳細を取得 |
-| `create_execution_environment` | 新しい実行環境を作成 |
-| `update_execution_environment` | 実行環境を更新 |
-| `delete_execution_environment` | 実行環境を削除 |
+### `schedules` (5 tools, 5 default)
 
-### 通知テンプレート（3）- `notifications.py`
+| Tool | Access | Summary |
+|------|--------|---------|
+| `create_schedule` | Write | Create an AWX schedule for recurring launches. |
+| `delete_schedule` | Write | Delete an AWX schedule. |
+| `get_schedule` | Read | Get details for one AWX schedule. |
+| `list_schedules` | Read | List AWX schedules, optionally filtered by template. |
+| `update_schedule` | Write | Update an AWX schedule. |
 
-| ツール | 説明 |
-|--------|------|
-| `list_notification_templates` | 通知テンプレート一覧 |
-| `get_notification_template` | 特定の通知テンプレートの詳細を取得 |
-| `test_notification_template` | テスト通知を送信 |
+### `system` (9 tools, 9 default)
 
-### ラベル管理（2）- `labels.py`
+| Tool | Access | Summary |
+|------|--------|---------|
+| `get_ansible_version` | Read | Get AWX/Ansible controller version and health information. |
+| `get_config` | Read | Get AWX instance configuration metadata. |
+| `get_dashboard_stats` | Read | Get AWX dashboard summary statistics. |
+| `get_system_job` | Read | Get details for a specific AWX maintenance system job run. |
+| `get_system_job_template` | Read | Get details for a specific AWX system job template. |
+| `launch_system_job` | Write | Launch an AWX maintenance system job from a system job template. |
+| `list_activity_stream` | Read | List AWX activity stream audit entries. |
+| `list_system_job_templates` | Read | List AWX system job templates for maintenance operations. |
+| `list_system_jobs` | Read | List AWX system job executions. |
 
-| ツール | 説明 |
-|--------|------|
-| `list_labels` | ラベル一覧 |
-| `create_label` | 新しいラベルを作成 |
+### `teams` (5 tools, 5 default)
 
-### RBAC ロール管理（7）- `rbac.py`
+| Tool | Access | Summary |
+|------|--------|---------|
+| `create_team` | Write | Create an AWX team within an organization. |
+| `delete_team` | Write | Delete an AWX team. |
+| `get_team` | Read | Get details for one AWX team. |
+| `list_teams` | Read | List AWX teams, optionally scoped to an organization. |
+| `update_team` | Write | Update an AWX team. |
 
-| ツール | 説明 |
-|--------|------|
-| `list_roles` | RBAC ロール一覧 |
-| `get_role` | 特定のロールの詳細を取得 |
-| `grant_role_to_user` | ユーザーにロールを付与 |
-| `revoke_role_from_user` | ユーザーからロールを剥奪 |
-| `grant_role_to_team` | チームにロールを付与 |
-| `revoke_role_from_team` | チームからロールを剥奪 |
-| `list_object_roles` | 特定リソースの RBAC ロール一覧を取得 |
+### `users` (5 tools, 3 default)
 
-### インスタンス管理（4）- `instances.py`
+| Tool | Access | Summary |
+|------|--------|---------|
+| `create_user` | Write (opt-in) | Create an AWX user account. |
+| `delete_user` | Write | Delete an AWX user account. |
+| `get_user` | Read | Get details for one AWX user. |
+| `list_users` | Read | List AWX users. |
+| `update_user` | Write (opt-in) | Update an AWX user account. |
 
-| ツール | 説明 |
-|--------|------|
-| `list_instances` | クラスターインスタンス一覧 |
-| `get_instance` | 特定のインスタンスの詳細を取得 |
-| `list_instance_groups` | インスタンスグループ一覧 |
-| `get_instance_group` | 特定のインスタンスグループの詳細を取得 |
+### `workflow_jobs` (11 tools, 11 default)
 
-### システム管理（9）- `system.py`
+| Tool | Access | Summary |
+|------|--------|---------|
+| `approve_workflow` | Write | Approve a pending AWX workflow approval request. |
+| `cancel_workflow_job` | Write | Cancel a running AWX workflow orchestration run. |
+| `deny_workflow` | Write | Deny a pending AWX workflow approval request. |
+| `get_workflow_approval` | Read | Get details for a specific AWX workflow approval request. |
+| `get_workflow_approval_template` | Read | Get a workflow job template node by ID (may or may not be an approval node). |
+| `get_workflow_job` | Read | Get details for a single AWX workflow orchestration run. |
+| `list_workflow_approval_templates` | Read | List AWX workflow approval template nodes. |
+| `list_workflow_approvals` | Read | List AWX workflow approval requests, optionally filtered by status. |
+| `list_workflow_job_nodes` | Read | List node outcomes for an executed AWX workflow job. |
+| `list_workflow_jobs` | Read | List AWX workflow orchestration runs, optionally filtered by status. |
+| `relaunch_workflow_job` | Write | Relaunch a completed or failed AWX workflow orchestration run. |
 
-| ツール | 説明 |
-|--------|------|
-| `list_activity_stream` | 監査ログを取得（オブジェクトタイプ/ID でフィルタ可能） |
-| `get_config` | AWX 設定情報を取得 |
-| `get_ansible_version` | AWX バージョン情報を取得 |
-| `get_dashboard_stats` | ダッシュボード統計を取得 |
-| `list_system_job_templates` | システムジョブテンプレート一覧（クリーンアップ、分析など） |
-| `get_system_job_template` | 特定のシステムジョブテンプレートの詳細を取得 |
-| `launch_system_job` | システムメンテナンスジョブを実行 |
-| `list_system_jobs` | システムジョブ実行履歴一覧 |
-| `get_system_job` | 特定のシステムジョブの詳細を取得 |
+### `workflow_templates` (17 tools, 17 default)
+
+| Tool | Access | Summary |
+|------|--------|---------|
+| `add_workflow_node_always_link` | Write | Add an AWX workflow always-run edge between template nodes. |
+| `add_workflow_node_failure_link` | Write | Add an AWX workflow failure edge between template nodes. |
+| `add_workflow_node_success_link` | Write | Add an AWX workflow success edge between template nodes. |
+| `copy_workflow_template` | Write | Create a copy of an AWX workflow template. |
+| `create_workflow_template` | Write | Create an AWX workflow template for multi-step orchestration. |
+| `create_workflow_template_node` | Write | Create a node in an AWX workflow template. |
+| `delete_workflow_template` | Write | Delete an AWX workflow template. |
+| `delete_workflow_template_node` | Write | Delete an AWX workflow template node. |
+| `delete_workflow_template_survey` | Write | Delete the survey spec from an AWX workflow template. |
+| `get_workflow_template` | Read | Get details for a specific AWX workflow template. |
+| `get_workflow_template_node` | Read | Get details for a specific AWX workflow template node. |
+| `get_workflow_template_survey` | Read | Get the survey spec for an AWX workflow template. |
+| `launch_workflow` | Write | Launch an AWX multi-step workflow from a workflow template. |
+| `list_workflow_template_nodes` | Read | List nodes defined in an AWX workflow template. |
+| `list_workflow_templates` | Read | List AWX workflow templates for multi-step orchestration. |
+| `set_workflow_template_survey` | Write | Set the survey spec for an AWX workflow template. |
+| `update_workflow_template` | Write | Update an existing AWX workflow template. |
+<!-- TOOL_TABLES:END -->
 
 </details>
 
@@ -769,7 +782,7 @@ MCP クライアント（Claude など）に自然言語でリクエストする
 
 **SSL 証明書エラー**
 
-TLS 検証はデフォルトで有効です。AWX インスタンスがプライベート/内部 CA が発行した証明書、または自己署名証明書を使用している場合は、`ANSIBLE_CA_BUNDLE` にその CA/証明書の PEM ファイルパスを設定してください — 検証を有効にしたまま、その証明書を信頼できます。CA 証明書が入手できないなど最後の手段としてのみ、`ANSIBLE_SSL_VERIFY` を `"false"`（文字列）に設定してください。この場合、検証が完全に無効化され、サーバーが警告をログに出力します。詳細は上記の **TLS / 証明書検証** セクションを参照してください。
+TLS 検証はデフォルトで有効です。AWX インスタンスがプライベート/内部 CA が発行した証明書、または自己署名証明書を使用している場合は、`ANSIBLE_CA_BUNDLE` にその CA/証明書の PEM ファイルパスを設定してください - 検証を有効にしたまま、その証明書を信頼できます。CA 証明書が入手できないなど最後の手段としてのみ、`ANSIBLE_SSL_VERIFY` を `"false"`（文字列）に設定してください。この場合、検証が完全に無効化され、サーバーが警告をログに出力します。詳細は [TLS 証明書検証](docs/security.ja.md#tls--証明書検証) を参照してください。
 
 **Connection refused / timeout**
 
@@ -819,4 +832,4 @@ API トークンまたはユーザーアカウントが該当リソースへの�
 
 ## ライセンス
 
-Apache License 2.0 — 詳細は [LICENSE](LICENSE) を参照してください。
+Apache License 2.0 - 詳細は [LICENSE](LICENSE) を参照してください。

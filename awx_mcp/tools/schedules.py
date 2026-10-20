@@ -4,22 +4,24 @@
 Ansible MCP Server - Schedule Management Tools
 """
 
-import json
-
 from ..client import get_ansible_client, handle_pagination
 from ..server import read_tool, write_tool
-from ..utils import parse_json_str
+from ..utils import parse_json_str, to_json
 
 
 @read_tool
 def list_schedules(
-    unified_job_template_id: int = None, limit: int = 100, offset: int = 0
+    unified_job_template_id: int | None = None, limit: int = 20, offset: int = 0
 ) -> str:
     """List AWX schedules, optionally filtered by template.
 
     Use this to discover recurring iCal triggers attached to job templates or
     workflow templates. Returns schedule IDs and linked unified_job_template
     values for follow-up with get_schedule, update_schedule, or delete_schedule.
+
+    Returns a JSON envelope {count, returned, offset, results}. count is the
+    server-side total; if offset + returned < count, call again with
+    offset=offset+returned to page through.
 
     Args:
         unified_job_template_id: Optional template ID to filter schedules
@@ -33,8 +35,10 @@ def list_schedules(
         if unified_job_template_id is not None:
             params["unified_job_template"] = unified_job_template_id
 
-        schedules = handle_pagination(client, "/api/v2/schedules/", params)
-        return json.dumps(schedules, indent=2)
+        envelope = handle_pagination(
+            client, "/api/v2/schedules/", params, with_meta=True
+        )
+        return to_json(envelope)
 
 
 @read_tool
@@ -50,7 +54,7 @@ def get_schedule(schedule_id: int) -> str:
     """
     with get_ansible_client() as client:
         schedule = client.request("GET", f"/api/v2/schedules/{schedule_id}/")
-        return json.dumps(schedule, indent=2)
+        return to_json(schedule)
 
 
 @write_tool()
@@ -76,9 +80,7 @@ def create_schedule(
         description: Schedule description and intent
         extra_data: JSON string of extra vars passed at each scheduled launch
     """
-    parsed_extra, error = parse_json_str(extra_data, "extra_data")
-    if error:
-        return error
+    parsed_extra = parse_json_str(extra_data, "extra_data")
 
     with get_ansible_client() as client:
         data = {
@@ -90,16 +92,16 @@ def create_schedule(
         }
 
         response = client.request("POST", "/api/v2/schedules/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(idempotent=True)
 def update_schedule(
     schedule_id: int,
-    name: str = None,
-    rrule: str = None,
-    description: str = None,
-    extra_data: str = None,
+    name: str | None = None,
+    rrule: str | None = None,
+    description: str | None = None,
+    extra_data: str | None = None,
 ) -> str:
     """Update an AWX schedule.
 
@@ -116,9 +118,7 @@ def update_schedule(
     """
     parsed_extra = None
     if extra_data is not None:
-        parsed_extra, error = parse_json_str(extra_data, "extra_data")
-        if error:
-            return error
+        parsed_extra = parse_json_str(extra_data, "extra_data")
 
     with get_ansible_client() as client:
         data = {}
@@ -134,7 +134,7 @@ def update_schedule(
         response = client.request(
             "PATCH", f"/api/v2/schedules/{schedule_id}/", data=data
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -150,6 +150,6 @@ def delete_schedule(schedule_id: int) -> str:
     """
     with get_ansible_client() as client:
         client.request("DELETE", f"/api/v2/schedules/{schedule_id}/")
-        return json.dumps(
+        return to_json(
             {"status": "success", "message": f"Schedule {schedule_id} deleted"}
         )

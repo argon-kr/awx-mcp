@@ -1,0 +1,28 @@
+# Keep tool versions in pyproject.toml and uv.lock, not isolated hook environments.
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: Ruff lint (locked project)
+        entry: uv run --locked ruff check .
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: ruff-format
+        name: Ruff format check (locked project)
+        entry: uv run --locked ruff format --check .
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: mypy
+        name: mypy (locked project)
+        entry: uv run --locked mypy awx_mcp/
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: doc-parity
+        name: Documentation parity (locked project)
+        entry: uv run --locked python scripts/check_doc_parity.py
+        language: system
+        pass_filenames: false
+        always_run: true

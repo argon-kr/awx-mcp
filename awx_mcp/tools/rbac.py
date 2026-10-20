@@ -7,19 +7,22 @@ Role listing, role assignment (grant/revoke) for users and teams,
 and object role inspection.
 """
 
-import json
-
 from ..client import get_ansible_client, handle_pagination
 from ..server import read_tool, write_tool
+from ..utils import to_json
 
 
 @read_tool
-def list_roles(limit: int = 100, offset: int = 0) -> str:
+def list_roles(limit: int = 20, offset: int = 0) -> str:
     """List all AWX RBAC roles.
 
     Returns global role definitions available across the AWX system. To find
     roles available for one specific resource instance, use list_object_roles
     instead.
+
+    Returns a JSON envelope {count, returned, offset, results}. count is the
+    server-side total; if offset + returned < count, call again with
+    offset=offset+returned to page through.
 
     Args:
         limit: Maximum number of results to return
@@ -27,8 +30,8 @@ def list_roles(limit: int = 100, offset: int = 0) -> str:
     """
     with get_ansible_client() as client:
         params = {"limit": limit, "offset": offset}
-        roles = handle_pagination(client, "/api/v2/roles/", params)
-        return json.dumps(roles, indent=2)
+        envelope = handle_pagination(client, "/api/v2/roles/", params, with_meta=True)
+        return to_json(envelope)
 
 
 @read_tool
@@ -44,11 +47,11 @@ def get_role(role_id: int) -> str:
     """
     with get_ansible_client() as client:
         role = client.request("GET", f"/api/v2/roles/{role_id}/")
-        return json.dumps(role, indent=2)
+        return to_json(role)
 
 
 # =============================================================================
-# Role Assignment (NEW)
+# Role Assignment
 # =============================================================================
 
 
@@ -67,7 +70,7 @@ def grant_role_to_user(role_id: int, user_id: int) -> str:
     with get_ansible_client() as client:
         data = {"id": user_id}
         response = client.request("POST", f"/api/v2/roles/{role_id}/users/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -86,7 +89,7 @@ def revoke_role_from_user(role_id: int, user_id: int) -> str:
     with get_ansible_client() as client:
         data = {"id": user_id, "disassociate": True}
         client.request("POST", f"/api/v2/roles/{role_id}/users/", data=data)
-        return json.dumps(
+        return to_json(
             {
                 "status": "success",
                 "message": f"Role {role_id} revoked from user {user_id}",
@@ -108,7 +111,7 @@ def grant_role_to_team(role_id: int, team_id: int) -> str:
     with get_ansible_client() as client:
         data = {"id": team_id}
         response = client.request("POST", f"/api/v2/roles/{role_id}/teams/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -126,7 +129,7 @@ def revoke_role_from_team(role_id: int, team_id: int) -> str:
     with get_ansible_client() as client:
         data = {"id": team_id, "disassociate": True}
         client.request("POST", f"/api/v2/roles/{role_id}/teams/", data=data)
-        return json.dumps(
+        return to_json(
             {
                 "status": "success",
                 "message": f"Role {role_id} revoked from team {team_id}",
@@ -136,13 +139,17 @@ def revoke_role_from_team(role_id: int, team_id: int) -> str:
 
 @read_tool
 def list_object_roles(
-    resource_type: str, resource_id: int, limit: int = 100, offset: int = 0
+    resource_type: str, resource_id: int, limit: int = 20, offset: int = 0
 ) -> str:
     """List AWX RBAC roles for one specific resource.
 
     Use this to discover assignable roles scoped to a particular inventory,
     project, template, team, organization, or credential. For global role
     definitions across all resources, use list_roles instead.
+
+    Returns a JSON envelope {count, returned, offset, results}. count is the
+    server-side total; if offset + returned < count, call again with
+    offset=offset+returned to page through.
 
     Args:
         resource_type: Resource type (inventories, projects, job_templates,
@@ -161,18 +168,16 @@ def list_object_roles(
         "credentials",
     ]
     if resource_type not in valid_types:
-        return json.dumps(
-            {
-                "status": "error",
-                "message": (
-                    f"Invalid resource_type. Must be one of: {', '.join(valid_types)}"
-                ),
-            }
+        raise ValueError(
+            f"Invalid resource_type. Must be one of: {', '.join(valid_types)}"
         )
 
     with get_ansible_client() as client:
         params = {"limit": limit, "offset": offset}
-        roles = handle_pagination(
-            client, f"/api/v2/{resource_type}/{resource_id}/object_roles/", params
+        envelope = handle_pagination(
+            client,
+            f"/api/v2/{resource_type}/{resource_id}/object_roles/",
+            params,
+            with_meta=True,
         )
-        return json.dumps(roles, indent=2)
+        return to_json(envelope)

@@ -7,11 +7,15 @@ Modes:
   serve   central server (streamable-http, passthrough auth via a caller token)
   sse     central server (sse transport, passthrough)
   remote  client proxy (stdio) relaying to a central serve instance
+  all     run local, serve, sse, and remote (default)
+  exercise  local stdio, call every list_*/get_* tool with no required arguments
 
 Each mode starts the server(s), connects as an MCP client, lists tools, and
 calls the read-only ``get_ansible_version`` tool to verify the round trip. In
 the passthrough modes the caller's token is sent as an ``Authorization: Bearer``
 header (streamable-http/sse) or forwarded by the proxy from ``ANSIBLE_TOKEN``.
+The exercise mode uses only read tools and returns a failing exit code for any
+tool error, including an AWX 403 caused by insufficient permissions.
 
 Connection settings are read from the environment — the token is NEVER written
 to this file. Set ANSIBLE_BASE_URL and ANSIBLE_TOKEN (or ANSIBLE_USERNAME /
@@ -21,7 +25,7 @@ Usage:
     ANSIBLE_BASE_URL=https://awx.example.com/ \\
     ANSIBLE_TOKEN=xxxxx \\
     ANSIBLE_SSL_VERIFY=false \\
-    uv run python scripts/mcp_smoke_test.py [local|serve|sse|remote|all]
+    uv run python scripts/mcp_smoke_test.py [local|serve|sse|remote|all|exercise]
 
 Exit code 0 = all selected modes passed, 1 = at least one failed.
 """
@@ -37,7 +41,7 @@ import subprocess
 import sys
 import time
 
-import httpx
+import httpx2
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.sse import sse_client
 from mcp.client.stdio import stdio_client
@@ -82,6 +86,10 @@ async def _drive(read, write) -> tuple[int, str]:
         text = ""
         if result.content:
             text = getattr(result.content[0], "text", "") or ""
+        if result.is_error:
+            raise RuntimeError(f"{PROBE_TOOL} failed: {text or 'empty error response'}")
+        if not text.strip():
+            raise RuntimeError(f"{PROBE_TOOL} returned no text")
         return len(tools.tools), text.strip()
 
 
@@ -123,8 +131,8 @@ async def test_serve() -> tuple[int, str]:
     try:
         _wait_port(port)
         url = f"http://{HOST}:{port}/mcp"
-        async with httpx.AsyncClient(headers=_caller_headers()) as hc:
-            async with streamable_http_client(url, http_client=hc) as (read, write, _):
+        async with httpx2.AsyncClient(headers=_caller_headers()) as hc:
+            async with streamable_http_client(url, http_client=hc) as (read, write):
                 return await _drive(read, write)
     finally:
         proc.terminate()
@@ -210,7 +218,7 @@ async def exercise() -> int:
             for tool in tools:
                 if not (tool.name.startswith("list_") or tool.name.startswith("get_")):
                     continue
-                required = (tool.inputSchema or {}).get("required") or []
+                required = (tool.input_schema or {}).get("required") or []
                 if not required:
                     targets.append(tool.name)
             targets.sort()
@@ -222,7 +230,7 @@ async def exercise() -> int:
                     text = ""
                     if result.content:
                         text = getattr(result.content[0], "text", "") or ""
-                    if result.isError:
+                    if result.is_error:
                         failures += 1
                         print(f"[FAIL] {name:32} {text[:70]}")
                     else:
@@ -243,7 +251,9 @@ async def main() -> int:
         return await exercise()
     selected = list(MODES) if which == "all" else [which]
     if any(m not in MODES for m in selected):
-        sys.exit(f"Unknown mode {which!r}. Choose: local, serve, sse, remote, all.")
+        sys.exit(
+            f"Unknown mode {which!r}. Choose: local, serve, sse, remote, all, exercise."
+        )
 
     failures = 0
     for name in selected:

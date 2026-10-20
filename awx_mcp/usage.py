@@ -1,26 +1,25 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Ansible MCP Server - file-based usage instrumentation.
+Ansible MCP Server - JSON Lines usage instrumentation.
 
-Wraps every registered MCP tool with a fire-and-forget usage recorder that
-appends one JSON object per line (JSON Lines) to a local file per call, so an
-external collector (filebeat/fluentd/...) can scrape it for statistics. The
-instrumentation is strictly best-effort: it never changes a tool's return
-value, never raises into the tool call path, and stays completely silent (fully
-disabled, a thin pass-through) when ``AWX_MCP_USAGE_LOG_FILE`` is unset.
+Wraps every registered MCP tool with a best-effort usage recorder that never
+changes a tool's return value or raises into the tool call path. Central
+``--serve`` transports (streamable-http and sse) always emit tool and internal
+API usage JSON Lines to stdout, including redacted tool arguments. Setting
+``AWX_MCP_USAGE_LOG_FILE`` adds a rotated file sink without disabling stdout.
 
-No network delivery happens here — the file is the only sink. Writes go through
-a :class:`logging.handlers.TimedRotatingFileHandler`, which is thread-safe, so
-no background queue/worker is needed. The file rotates at midnight (UTC) with a
-date-suffixed backup, keeping ``AWX_MCP_LOG_BACKUP_COUNT`` backups (default 7).
+Local stdio and ``--remote`` proxy mode reserve stdout for the MCP protocol.
+Their usage file logging is opt-in and disabled when the file path is unset.
+There is no built-in remote log exporter, but external collectors can collect
+configured files or central stdout. File writes use the thread-safe
+:class:`logging.handlers.TimedRotatingFileHandler`, rotating at midnight (UTC)
+with a date suffix and ``AWX_MCP_LOG_BACKUP_COUNT`` backups (default 7).
 """
 
 from __future__ import annotations
 
-import functools
 import hashlib
-import inspect
 import json
 import logging
 import os
@@ -29,18 +28,35 @@ import sys
 import threading
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from logging.handlers import TimedRotatingFileHandler
 from typing import Any
 from urllib.parse import urlparse
 
-from .utils import mask_secrets
+from .settings import get_settings
+from .utils import mask_secrets, package_version, wrap_tool_call
 
 logger = logging.getLogger("ansible-mcp.usage")
 
-# --- Configuration (read at import; path unset => instrumentation off) --------
-USAGE_LOG_FILE = os.environ.get("AWX_MCP_USAGE_LOG_FILE")
+
+def __getattr__(name: str) -> Any:
+    if name == "USAGE_LOG_FILE":
+        return get_settings().usage_log_file
+    raise AttributeError(name)
+
+
+def configure() -> None:
+    """Close startup-owned sinks and reset attribution before serving again."""
+    global _usage_logger, _user_cache
+    if _usage_logger is not None:
+        for handler in _usage_logger.handlers:
+            handler.close()
+        _usage_logger.handlers.clear()
+    _usage_logger = None
+    _user_cache = None
+    _user_cache_by_token.clear()
 
 
 def stdout_jsonl_enabled() -> bool:
@@ -51,7 +67,7 @@ def stdout_jsonl_enabled() -> bool:
     (``kubectl logs`` / fluentd). In stdio mode stdout carries the MCP protocol
     and in proxy mode it carries the relayed stdio stream — never write there.
     """
-    return os.environ.get("AWX_MCP_EFFECTIVE_TRANSPORT") in (
+    return get_settings().transport in (
         "sse",
         "streamable-http",
     )
@@ -59,10 +75,7 @@ def stdout_jsonl_enabled() -> bool:
 
 def log_backup_count() -> int:
     """Number of rotated backups to keep (env ``AWX_MCP_LOG_BACKUP_COUNT``, 7)."""
-    try:
-        return int(os.environ.get("AWX_MCP_LOG_BACKUP_COUNT", "7"))
-    except (TypeError, ValueError):
-        return 7
+    return get_settings().log_backup_count
 
 
 def make_timed_rotating_handler(path: str) -> TimedRotatingFileHandler:
@@ -115,13 +128,11 @@ def _lookup_me_username(token: str | None = None) -> str:
     try:
         # Imported lazily to avoid an import cycle (client -> server -> usage).
         from .client import AnsibleClient, get_ansible_client
-        from .server import ANSIBLE_BASE_URL
 
         if token is not None:
-            # ANSIBLE_BASE_URL is validated non-None at server import in every
-            # mode; assert narrows str | None -> str for the type checker.
-            assert ANSIBLE_BASE_URL is not None
-            with AnsibleClient(base_url=ANSIBLE_BASE_URL, token=token) as client:
+            base_url = get_settings().base_url
+            assert base_url is not None
+            with AnsibleClient(base_url=base_url, token=token) as client:
                 me = client.request("GET", "/api/v2/me/")
         else:
             with get_ansible_client() as client:
@@ -162,11 +173,7 @@ def resolve_user_identifier() -> str:
     """
     global _user_cache
 
-    # AUTH_MODE is imported lazily: server.py imports this module before it
-    # defines AUTH_MODE, so a module-top import would be a cycle.
-    from .server import AUTH_MODE
-
-    if AUTH_MODE == "passthrough":
+    if get_settings().auth_mode == "passthrough":
         from .client import get_request_token
 
         token = get_request_token()
@@ -206,17 +213,12 @@ def resolve_user_identifier() -> str:
 
 
 def _server_version() -> str:
-    try:
-        from importlib.metadata import version
-
-        return version("awx-mcp")
-    except Exception:  # noqa: BLE001
-        return "unknown"
+    return package_version()
 
 
 def _awx_host() -> str:
     """Return the host portion of ``ANSIBLE_BASE_URL`` (or ``"unknown"``)."""
-    base = os.environ.get("ANSIBLE_BASE_URL")
+    base = get_settings().base_url
     if not base:
         return "unknown"
     try:
@@ -230,11 +232,11 @@ def _awx_host() -> str:
 def _effective_transport() -> str:
     """The transport label for usage records.
 
-    Derived from an internal env indicator set by the CLI (``main()``), NOT from
-    the removed ``AWX_MCP_TRANSPORT``: ``stdio`` (local), ``streamable-http`` or
-    ``sse`` (``--serve``). The proxy passes ``transport="proxy"`` explicitly.
+    Derived from the explicit CLI startup settings: ``stdio`` (local),
+    ``streamable-http`` or ``sse`` (``--serve``). The proxy passes
+    ``transport="proxy"`` explicitly.
     """
-    return os.environ.get("AWX_MCP_EFFECTIVE_TRANSPORT", "stdio")
+    return get_settings().transport
 
 
 # Key names whose values are always redacted. Matched on whole ``_``-separated
@@ -349,8 +351,8 @@ def build_payload(
     recording an internal call from inside that resolution to avoid recursion,
     and by the proxy (which has no AWX access to resolve a username). ``transport``
     and ``awx_host`` may likewise be supplied directly; the proxy passes
-    ``transport="proxy"`` and the central host because the env-derived defaults
-    (``AWX_MCP_EFFECTIVE_TRANSPORT`` / ``ANSIBLE_BASE_URL``) do not apply there.
+    ``transport="proxy"`` and the central host because the local AWX base URL
+    does not apply there.
     """
     payload: dict[str, Any] = {
         "@timestamp": datetime.now(timezone.utc).isoformat(),
@@ -361,7 +363,7 @@ def build_payload(
         "server_version": _server_version(),
         "success": success,
         "latency_ms": latency_ms,
-        "auth_mode": os.environ.get("AWX_MCP_AUTH_MODE", "static"),
+        "auth_mode": get_settings().auth_mode,
         "transport": transport if transport is not None else _effective_transport(),
         "awx_host": awx_host if awx_host is not None else _awx_host(),
     }
@@ -386,7 +388,7 @@ _usage_logger_lock = threading.Lock()
 
 
 def _is_enabled() -> bool:
-    return bool(USAGE_LOG_FILE) or stdout_jsonl_enabled()
+    return bool(get_settings().usage_log_file) or stdout_jsonl_enabled()
 
 
 def _get_usage_logger() -> logging.Logger | None:
@@ -413,8 +415,9 @@ def _get_usage_logger() -> logging.Logger | None:
         lg.setLevel(logging.INFO)
         lg.propagate = False
         raw = logging.Formatter("%(message)s")
-        if USAGE_LOG_FILE:
-            handler = make_timed_rotating_handler(USAGE_LOG_FILE)
+        path = get_settings().usage_log_file
+        if path:
+            handler = make_timed_rotating_handler(path)
             handler.setFormatter(raw)
             lg.addHandler(handler)
         if stdout_jsonl_enabled():
@@ -471,7 +474,7 @@ def record_proxy_tool_call(
     ``ANSIBLE_BASE_URL`` validation, crashing the proxy (which has no BASE_URL).
     ``params`` are the relayed tool arguments; they are redacted before logging.
     ``error_detail`` carries the central server's error text when it returned a
-    normal ``isError=True`` result (no exception raised); it is already
+    normal ``is_error=True`` result (no exception raised); it is already
     secret-masked by the caller and logged as an ``error`` of type ``ToolError``.
     Swallows all errors so logging never affects the relay.
     """
@@ -541,40 +544,22 @@ def _record_internal_api(
 def instrument_tool(func: Callable[..., Any]) -> Callable[..., Any]:
     """Wrap a tool function with fire-and-forget usage instrumentation.
 
-    ``functools.wraps`` preserves the wrapped function's signature, docstring,
-    and annotations so FastMCP's schema generation is unaffected. Supports both
-    sync and async tools. When instrumentation is disabled (no log file) the
-    wrapper is a thin pass-through.
+    Signature, docstring and annotations are preserved so MCPServer's schema
+    generation is unaffected. Supports both sync and async tools. When neither
+    a file sink nor central stdout logging is enabled, the wrapper is a thin
+    pass-through.
     """
-    if inspect.iscoroutinefunction(func):
 
-        @functools.wraps(func)
-        async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
-            if not _is_enabled():
-                return await func(*args, **kwargs)
-            start = time.monotonic()
-            success = True
-            captured: BaseException | None = None
-            try:
-                return await func(*args, **kwargs)
-            except Exception as exc:
-                success = False
-                captured = exc
-                raise
-            finally:
-                _record(func.__name__, start, success, captured, params=kwargs)
-
-        return async_wrapper
-
-    @functools.wraps(func)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
+    @contextmanager
+    def _instrumented(kwargs: dict[str, Any]) -> Iterator[None]:
         if not _is_enabled():
-            return func(*args, **kwargs)
+            yield
+            return
         start = time.monotonic()
         success = True
         captured: BaseException | None = None
         try:
-            return func(*args, **kwargs)
+            yield
         except Exception as exc:
             success = False
             captured = exc
@@ -582,4 +567,4 @@ def instrument_tool(func: Callable[..., Any]) -> Callable[..., Any]:
         finally:
             _record(func.__name__, start, success, captured, params=kwargs)
 
-    return wrapper
+    return wrap_tool_call(func, _instrumented)

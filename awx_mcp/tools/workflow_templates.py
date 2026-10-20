@@ -6,12 +6,11 @@ Ansible MCP Server - Workflow Template & Node Tools
 Workflow job template CRUD, survey management, copy, launch, and node management.
 """
 
-import json
 from typing import Any
 
 from ..client import get_ansible_client, handle_pagination
 from ..server import read_tool, write_tool
-from ..utils import parse_json_str, validate_json_str
+from ..utils import parse_json_str, to_json, validate_json_str
 
 # =============================================================================
 # Workflow Template Management
@@ -19,21 +18,41 @@ from ..utils import parse_json_str, validate_json_str
 
 
 @read_tool
-def list_workflow_templates(limit: int = 100, offset: int = 0) -> str:
+def list_workflow_templates(
+    template_name: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> str:
     """List AWX workflow templates for multi-step orchestration.
 
     Use this to discover orchestration definitions that chain multiple nodes
     and conditions.
     For single-playbook execution templates, use list_job_templates instead.
 
+    Workflow template name searches are performed server-side using AWX's
+    case-insensitive partial-name filter. Prefer this over paging through the
+    whole collection when resolving a name to an ID.
+
+    Returns a JSON envelope {count, returned, offset, results}. count is the
+    server-side total; if offset + returned < count, call again with
+    offset=offset+returned to page through.
+
     Args:
+        template_name: Optional full or partial workflow template name, matched
+            case-insensitively.
         limit: Maximum number of results to return
         offset: Number of results to skip
     """
     with get_ansible_client() as client:
-        params = {"limit": limit, "offset": offset}
-        templates = handle_pagination(client, "/api/v2/workflow_job_templates/", params)
-        return json.dumps(templates, indent=2)
+        params: dict[str, Any] = {"limit": limit, "offset": offset}
+
+        if template_name and template_name.strip():
+            params["name__icontains"] = template_name.strip()
+
+        envelope = handle_pagination(
+            client, "/api/v2/workflow_job_templates/", params, with_meta=True
+        )
+        return to_json(envelope)
 
 
 @read_tool
@@ -50,7 +69,7 @@ def get_workflow_template(template_id: int) -> str:
         template = client.request(
             "GET", f"/api/v2/workflow_job_templates/{template_id}/"
         )
-        return json.dumps(template, indent=2)
+        return to_json(template)
 
 
 @write_tool()
@@ -61,9 +80,9 @@ def create_workflow_template(
     extra_vars: str = "{}",
     survey_enabled: bool = False,
     allow_simultaneous: bool = False,
-    inventory: int = None,
-    limit: str = None,
-    scm_branch: str = None,
+    inventory: int | None = None,
+    limit: str | None = None,
+    scm_branch: str | None = None,
 ) -> str:
     """Create an AWX workflow template for multi-step orchestration.
 
@@ -83,9 +102,7 @@ def create_workflow_template(
         limit: Default host limit pattern for nodes that prompt on launch
         scm_branch: Default SCM branch for nodes that prompt on launch
     """
-    error = validate_json_str(extra_vars, "extra_vars")
-    if error:
-        return error
+    validate_json_str(extra_vars, "extra_vars")
 
     with get_ansible_client() as client:
         data = {
@@ -103,20 +120,20 @@ def create_workflow_template(
         if scm_branch is not None:
             data["scm_branch"] = scm_branch
         response = client.request("POST", "/api/v2/workflow_job_templates/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(idempotent=True)
 def update_workflow_template(
     template_id: int,
-    name: str = None,
-    description: str = None,
-    extra_vars: str = None,
-    survey_enabled: bool = None,
-    allow_simultaneous: bool = None,
-    inventory: int = None,
-    limit: str = None,
-    scm_branch: str = None,
+    name: str | None = None,
+    description: str | None = None,
+    extra_vars: str | None = None,
+    survey_enabled: bool | None = None,
+    allow_simultaneous: bool | None = None,
+    inventory: int | None = None,
+    limit: str | None = None,
+    scm_branch: str | None = None,
 ) -> str:
     """Update an existing AWX workflow template.
 
@@ -137,9 +154,7 @@ def update_workflow_template(
         scm_branch: Default SCM branch for nodes that prompt on launch
     """
     if extra_vars is not None:
-        error = validate_json_str(extra_vars, "extra_vars")
-        if error:
-            return error
+        validate_json_str(extra_vars, "extra_vars")
 
     with get_ansible_client() as client:
         data: dict[str, Any] = {}
@@ -163,7 +178,7 @@ def update_workflow_template(
         response = client.request(
             "PATCH", f"/api/v2/workflow_job_templates/{template_id}/", data=data
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -180,7 +195,7 @@ def delete_workflow_template(template_id: int) -> str:
     """
     with get_ansible_client() as client:
         client.request("DELETE", f"/api/v2/workflow_job_templates/{template_id}/")
-        return json.dumps(
+        return to_json(
             {"status": "success", "message": f"Workflow template {template_id} deleted"}
         )
 
@@ -188,10 +203,10 @@ def delete_workflow_template(template_id: int) -> str:
 @write_tool(destructive=True)
 def launch_workflow(
     template_id: int,
-    extra_vars: str = None,
-    inventory: int = None,
-    limit: str = None,
-    scm_branch: str = None,
+    extra_vars: str | None = None,
+    inventory: int | None = None,
+    limit: str | None = None,
+    scm_branch: str | None = None,
 ) -> str:
     """Launch an AWX multi-step workflow from a workflow template.
 
@@ -210,9 +225,7 @@ def launch_workflow(
         scm_branch: Override SCM branch for projects in the workflow
     """
     if extra_vars is not None:
-        error = validate_json_str(extra_vars, "extra_vars")
-        if error:
-            return error
+        validate_json_str(extra_vars, "extra_vars")
 
     with get_ansible_client() as client:
         data: dict[str, Any] = {}
@@ -228,7 +241,7 @@ def launch_workflow(
         response = client.request(
             "POST", f"/api/v2/workflow_job_templates/{template_id}/launch/", data=data
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool()
@@ -248,7 +261,7 @@ def copy_workflow_template(template_id: int, new_name: str) -> str:
         response = client.request(
             "POST", f"/api/v2/workflow_job_templates/{template_id}/copy/", data=data
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 # =============================================================================
@@ -271,7 +284,7 @@ def get_workflow_template_survey(template_id: int) -> str:
         survey = client.request(
             "GET", f"/api/v2/workflow_job_templates/{template_id}/survey_spec/"
         )
-        return json.dumps(survey, indent=2)
+        return to_json(survey)
 
 
 @write_tool(idempotent=True)
@@ -287,9 +300,7 @@ def set_workflow_template_survey(template_id: int, survey_spec: str) -> str:
         survey_spec: JSON string of the survey spec
             (must include name, description, spec array)
     """
-    spec, error = parse_json_str(survey_spec, "survey_spec")
-    if error:
-        return error
+    spec = parse_json_str(survey_spec, "survey_spec")
 
     with get_ansible_client() as client:
         response = client.request(
@@ -297,7 +308,7 @@ def set_workflow_template_survey(template_id: int, survey_spec: str) -> str:
             f"/api/v2/workflow_job_templates/{template_id}/survey_spec/",
             data=spec,
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -316,7 +327,7 @@ def delete_workflow_template_survey(template_id: int) -> str:
         client.request(
             "DELETE", f"/api/v2/workflow_job_templates/{template_id}/survey_spec/"
         )
-        return json.dumps(
+        return to_json(
             {
                 "status": "success",
                 "message": f"Survey deleted from workflow template {template_id}",
@@ -331,7 +342,7 @@ def delete_workflow_template_survey(template_id: int) -> str:
 
 @read_tool
 def list_workflow_template_nodes(
-    template_id: int, limit: int = 100, offset: int = 0
+    template_id: int, limit: int = 20, offset: int = 0
 ) -> str:
     """List nodes defined in an AWX workflow template.
 
@@ -339,6 +350,10 @@ def list_workflow_template_nodes(
     link management.
     For executed-node outcomes from a running workflow, use
     list_workflow_job_nodes instead.
+
+    Returns a JSON envelope {count, returned, offset, results}. count is the
+    server-side total; if offset + returned < count, call again with
+    offset=offset+returned to page through.
 
     Args:
         template_id: ID of the workflow template
@@ -348,12 +363,13 @@ def list_workflow_template_nodes(
     """
     with get_ansible_client() as client:
         params = {"limit": limit, "offset": offset}
-        nodes = handle_pagination(
+        envelope = handle_pagination(
             client,
             f"/api/v2/workflow_job_templates/{template_id}/workflow_nodes/",
             params,
+            with_meta=True,
         )
-        return json.dumps(nodes, indent=2)
+        return to_json(envelope)
 
 
 @read_tool
@@ -368,14 +384,14 @@ def get_workflow_template_node(node_id: int) -> str:
     """
     with get_ansible_client() as client:
         node = client.request("GET", f"/api/v2/workflow_job_template_nodes/{node_id}/")
-        return json.dumps(node, indent=2)
+        return to_json(node)
 
 
 @write_tool()
 def create_workflow_template_node(
     workflow_template_id: int,
     unified_job_template_id: int,
-    identifier: str = None,
+    identifier: str | None = None,
     all_parents_must_converge: bool = False,
     extra_data: str = "{}",
 ) -> str:
@@ -398,9 +414,7 @@ def create_workflow_template_node(
             this node runs
         extra_data: JSON string of extra variables for this node
     """
-    parsed_extra, error = parse_json_str(extra_data, "extra_data")
-    if error:
-        return error
+    parsed_extra = parse_json_str(extra_data, "extra_data")
 
     with get_ansible_client() as client:
         data = {
@@ -414,7 +428,7 @@ def create_workflow_template_node(
         response = client.request(
             "POST", "/api/v2/workflow_job_template_nodes/", data=data
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -431,7 +445,7 @@ def delete_workflow_template_node(node_id: int) -> str:
     """
     with get_ansible_client() as client:
         client.request("DELETE", f"/api/v2/workflow_job_template_nodes/{node_id}/")
-        return json.dumps(
+        return to_json(
             {
                 "status": "success",
                 "message": f"Workflow template node {node_id} deleted",
@@ -460,7 +474,7 @@ def add_workflow_node_success_link(node_id: int, target_node_id: int) -> str:
             f"/api/v2/workflow_job_template_nodes/{node_id}/success_nodes/",
             data=data,
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(idempotent=True)
@@ -484,7 +498,7 @@ def add_workflow_node_failure_link(node_id: int, target_node_id: int) -> str:
             f"/api/v2/workflow_job_template_nodes/{node_id}/failure_nodes/",
             data=data,
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(idempotent=True)
@@ -508,4 +522,4 @@ def add_workflow_node_always_link(node_id: int, target_node_id: int) -> str:
             f"/api/v2/workflow_job_template_nodes/{node_id}/always_nodes/",
             data=data,
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)

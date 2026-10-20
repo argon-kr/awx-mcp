@@ -4,35 +4,49 @@
 Ansible MCP Server - Group Management Tools
 """
 
-import json
-
-from ..client import get_ansible_client, handle_pagination
+from ..client import get_ansible_client
 from ..server import read_tool, write_tool
-from ..utils import validate_json_str
+from ..utils import to_json, validate_json_str
+from ._helpers import delete_resource, drop_none, get_resource, list_resource
 
 
 @read_tool
-def list_groups(inventory_id: int = None, limit: int = 100, offset: int = 0) -> str:
+def list_groups(
+    inventory_id: int | None = None,
+    group_name: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> str:
     """List AWX inventory groups.
 
     Returns logical host groupings within inventories and their group IDs for
     membership operations. For individual machine records, use list_hosts
     instead.
 
+    Group name searches are performed server-side using AWX's case-insensitive
+    partial-name filter. Prefer this over paging through the whole collection
+    when resolving a name to an ID.
+
+    Returns a JSON envelope {count, returned, offset, results}. count is the
+    server-side total; if offset + returned < count, call again with
+    offset=offset+returned to page through.
+
     Args:
         inventory_id: Optional ID of inventory to filter groups
             (from list_inventories response)
+        group_name: Optional full or partial group name, matched
+            case-insensitively.
         limit: Maximum number of results to return
         offset: Number of results to skip
     """
     with get_ansible_client() as client:
-        params = {"limit": limit, "offset": offset}
         if inventory_id is not None:
             endpoint = f"/api/v2/inventories/{inventory_id}/groups/"
         else:
             endpoint = "/api/v2/groups/"
-        groups = handle_pagination(client, endpoint, params)
-        return json.dumps(groups, indent=2)
+        return list_resource(
+            client, endpoint, limit=limit, offset=offset, name=group_name
+        )
 
 
 @read_tool
@@ -47,8 +61,7 @@ def get_group(group_id: int) -> str:
         group_id: ID of the group (from list_groups response)
     """
     with get_ansible_client() as client:
-        group = client.request("GET", f"/api/v2/groups/{group_id}/")
-        return json.dumps(group, indent=2)
+        return get_resource(client, f"/api/v2/groups/{group_id}/")
 
 
 @write_tool()
@@ -68,9 +81,7 @@ def create_group(
         variables: JSON string of group variables
         description: Description of the group
     """
-    error = validate_json_str(variables, "variables")
-    if error:
-        return error
+    validate_json_str(variables, "variables")
 
     with get_ansible_client() as client:
         data = {
@@ -80,12 +91,15 @@ def create_group(
             "description": description,
         }
         response = client.request("POST", "/api/v2/groups/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(idempotent=True)
 def update_group(
-    group_id: int, name: str = None, variables: str = None, description: str = None
+    group_id: int,
+    name: str | None = None,
+    variables: str | None = None,
+    description: str | None = None,
 ) -> str:
     """Update AWX group metadata and variables.
 
@@ -100,21 +114,12 @@ def update_group(
         description: New description for the group
     """
     if variables is not None:
-        error = validate_json_str(variables, "variables")
-        if error:
-            return error
+        validate_json_str(variables, "variables")
 
     with get_ansible_client() as client:
-        data = {}
-        if name is not None:
-            data["name"] = name
-        if variables is not None:
-            data["variables"] = variables
-        if description is not None:
-            data["description"] = description
-
+        data = drop_none(name=name, variables=variables, description=description)
         response = client.request("PATCH", f"/api/v2/groups/{group_id}/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -129,8 +134,9 @@ def delete_group(group_id: int) -> str:
         group_id: ID of the group (from list_groups response)
     """
     with get_ansible_client() as client:
-        client.request("DELETE", f"/api/v2/groups/{group_id}/")
-        return json.dumps({"status": "success", "message": f"Group {group_id} deleted"})
+        return delete_resource(
+            client, f"/api/v2/groups/{group_id}/", message=f"Group {group_id} deleted"
+        )
 
 
 @write_tool(idempotent=True)
@@ -149,7 +155,7 @@ def add_host_to_group(group_id: int, host_id: int) -> str:
         response = client.request(
             "POST", f"/api/v2/groups/{group_id}/hosts/", data=data
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -170,7 +176,7 @@ def remove_host_from_group(group_id: int, host_id: int) -> str:
             f"/api/v2/groups/{group_id}/hosts/",
             data={"id": host_id, "disassociate": True},
         )
-        return json.dumps(
+        return to_json(
             {
                 "status": "success",
                 "message": f"Host {host_id} removed from group {group_id}",

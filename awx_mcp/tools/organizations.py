@@ -4,29 +4,49 @@
 Ansible MCP Server - Organization Management Tools
 """
 
-import json
 from typing import Any
 
 from ..client import get_ansible_client, handle_pagination
 from ..server import read_tool, write_tool
+from ..utils import to_json
 
 
 @read_tool
-def list_organizations(limit: int = 100, offset: int = 0) -> str:
+def list_organizations(
+    organization_name: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> str:
     """List AWX organizations.
 
     Use this to discover top-level AWX tenants before working with teams,
     users, inventories, or projects that belong to an organization. Returns
     organization records with IDs used by get_organization and create_team.
 
+    Organization name searches are performed server-side using AWX's
+    case-insensitive partial-name filter. Prefer this over paging through the
+    whole collection when resolving a name to an ID.
+
+    Returns a JSON envelope {count, returned, offset, results}. count is the
+    server-side total; if offset + returned < count, call again with
+    offset=offset+returned to page through.
+
     Args:
+        organization_name: Optional full or partial organization name, matched
+            case-insensitively.
         limit: Maximum number of organization results to return
         offset: Number of organization results to skip
     """
     with get_ansible_client() as client:
-        params = {"limit": limit, "offset": offset}
-        organizations = handle_pagination(client, "/api/v2/organizations/", params)
-        return json.dumps(organizations, indent=2)
+        params: dict[str, Any] = {"limit": limit, "offset": offset}
+
+        if organization_name and organization_name.strip():
+            params["name__icontains"] = organization_name.strip()
+
+        envelope = handle_pagination(
+            client, "/api/v2/organizations/", params, with_meta=True
+        )
+        return to_json(envelope)
 
 
 @read_tool
@@ -44,7 +64,7 @@ def get_organization(organization_id: int) -> str:
         organization = client.request(
             "GET", f"/api/v2/organizations/{organization_id}/"
         )
-        return json.dumps(organization, indent=2)
+        return to_json(organization)
 
 
 @write_tool()
@@ -52,7 +72,7 @@ def create_organization(
     name: str,
     description: str = "",
     max_hosts: int = 0,
-    default_environment: int = None,
+    default_environment: int | None = None,
 ) -> str:
     """Create an AWX organization.
 
@@ -72,16 +92,16 @@ def create_organization(
         if default_environment is not None:
             data["default_environment"] = default_environment
         response = client.request("POST", "/api/v2/organizations/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(idempotent=True)
 def update_organization(
     organization_id: int,
-    name: str = None,
-    description: str = None,
-    max_hosts: int = None,
-    default_environment: int = None,
+    name: str | None = None,
+    description: str | None = None,
+    max_hosts: int | None = None,
+    default_environment: int | None = None,
 ) -> str:
     """Update an AWX organization.
 
@@ -111,7 +131,7 @@ def update_organization(
         response = client.request(
             "PATCH", f"/api/v2/organizations/{organization_id}/", data=data
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -127,6 +147,6 @@ def delete_organization(organization_id: int) -> str:
     """
     with get_ansible_client() as client:
         client.request("DELETE", f"/api/v2/organizations/{organization_id}/")
-        return json.dumps(
+        return to_json(
             {"status": "success", "message": f"Organization {organization_id} deleted"}
         )

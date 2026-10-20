@@ -1,5 +1,6 @@
-# Keep the build context lean and secret-free (COPY . pulls the repo root).
+# Keep the build context lean and secret-free.
 **/.env
+**/.env.*
 **/.venv/
 **/__pycache__/
 **/*.pyc
@@ -9,4 +10,8 @@
 .pytest_cache/
 .ruff_cache/
 tests/
+.superpowers/
+dist/
+build/
+.release/
 **/.DS_Store

@@ -4,29 +4,49 @@
 Ansible MCP Server - Execution Environment Tools
 """
 
-import json
 from typing import Any
 
 from ..client import get_ansible_client, handle_pagination
 from ..server import read_tool, write_tool
+from ..utils import to_json
 
 
 @read_tool
-def list_execution_environments(limit: int = 100, offset: int = 0) -> str:
+def list_execution_environments(
+    environment_name: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> str:
     """List AWX execution environments.
 
     Use this to discover containerized runtimes available for job execution.
     Returns execution environment IDs and image metadata for chaining into
     get_execution_environment, update_execution_environment, or templates.
 
+    Execution environment name searches are performed server-side using AWX's
+    case-insensitive partial-name filter. Prefer this over paging through the
+    whole collection when resolving a name to an ID.
+
+    Returns a JSON envelope {count, returned, offset, results}. count is the
+    server-side total; if offset + returned < count, call again with
+    offset=offset+returned to page through.
+
     Args:
+        environment_name: Optional full or partial execution environment name,
+            matched case-insensitively.
         limit: Maximum number of execution environment results to return
         offset: Number of execution environment results to skip
     """
     with get_ansible_client() as client:
-        params = {"limit": limit, "offset": offset}
-        envs = handle_pagination(client, "/api/v2/execution_environments/", params)
-        return json.dumps(envs, indent=2)
+        params: dict[str, Any] = {"limit": limit, "offset": offset}
+
+        if environment_name and environment_name.strip():
+            params["name__icontains"] = environment_name.strip()
+
+        envs = handle_pagination(
+            client, "/api/v2/execution_environments/", params, with_meta=True
+        )
+        return to_json(envs)
 
 
 @read_tool
@@ -42,17 +62,17 @@ def get_execution_environment(ee_id: int) -> str:
     """
     with get_ansible_client() as client:
         ee = client.request("GET", f"/api/v2/execution_environments/{ee_id}/")
-        return json.dumps(ee, indent=2)
+        return to_json(ee)
 
 
 @write_tool()
 def create_execution_environment(
     name: str,
     image: str,
-    organization_id: int = None,
-    credential_id: int = None,
+    organization_id: int | None = None,
+    credential_id: int | None = None,
     description: str = "",
-    pull: str = None,
+    pull: str | None = None,
 ) -> str:
     """Create an AWX execution environment.
 
@@ -81,17 +101,17 @@ def create_execution_environment(
         if pull is not None:
             data["pull"] = pull
         response = client.request("POST", "/api/v2/execution_environments/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(idempotent=True)
 def update_execution_environment(
     ee_id: int,
-    name: str = None,
-    image: str = None,
-    credential_id: int = None,
-    description: str = None,
-    pull: str = None,
+    name: str | None = None,
+    image: str | None = None,
+    credential_id: int | None = None,
+    description: str | None = None,
+    pull: str | None = None,
 ) -> str:
     """Update an AWX execution environment.
 
@@ -122,7 +142,7 @@ def update_execution_environment(
         response = client.request(
             "PATCH", f"/api/v2/execution_environments/{ee_id}/", data=data
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -138,6 +158,6 @@ def delete_execution_environment(ee_id: int) -> str:
     """
     with get_ansible_client() as client:
         client.request("DELETE", f"/api/v2/execution_environments/{ee_id}/")
-        return json.dumps(
+        return to_json(
             {"status": "success", "message": f"Execution environment {ee_id} deleted"}
         )

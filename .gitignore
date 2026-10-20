@@ -15,8 +15,10 @@ venv/
 # Testing
 .pytest_cache/
 .coverage
+.coverage.*
 htmlcov/
 coverage.xml
+coverage.json
 
 # Linting / Type checking
 .ruff_cache/

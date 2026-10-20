@@ -4,28 +4,49 @@
 Ansible MCP Server - Notification Template Tools
 """
 
-import json
+from typing import Any
 
 from ..client import get_ansible_client, handle_pagination
 from ..server import read_tool, write_tool
+from ..utils import to_json
 
 
 @read_tool
-def list_notification_templates(limit: int = 100, offset: int = 0) -> str:
+def list_notification_templates(
+    template_name: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> str:
     """List AWX notification templates.
 
     Use this to discover alert integrations (email, Slack, webhook, and more)
     available for job and workflow event notifications. Returns template IDs
     for get_notification_template and test_notification_template.
 
+    Notification template name searches are performed server-side using AWX's
+    case-insensitive partial-name filter. Prefer this over paging through the
+    whole collection when resolving a name to an ID.
+
+    Returns a JSON envelope {count, returned, offset, results}. count is the
+    server-side total; if offset + returned < count, call again with
+    offset=offset+returned to page through.
+
     Args:
+        template_name: Optional full or partial notification template name,
+            matched case-insensitively.
         limit: Maximum number of notification template results to return
         offset: Number of notification template results to skip
     """
     with get_ansible_client() as client:
-        params = {"limit": limit, "offset": offset}
-        templates = handle_pagination(client, "/api/v2/notification_templates/", params)
-        return json.dumps(templates, indent=2)
+        params: dict[str, Any] = {"limit": limit, "offset": offset}
+
+        if template_name and template_name.strip():
+            params["name__icontains"] = template_name.strip()
+
+        envelope = handle_pagination(
+            client, "/api/v2/notification_templates/", params, with_meta=True
+        )
+        return to_json(envelope)
 
 
 @read_tool
@@ -43,7 +64,7 @@ def get_notification_template(template_id: int) -> str:
         template = client.request(
             "GET", f"/api/v2/notification_templates/{template_id}/"
         )
-        return json.dumps(template, indent=2)
+        return to_json(template)
 
 
 @write_tool()
@@ -61,4 +82,4 @@ def test_notification_template(template_id: int) -> str:
         response = client.request(
             "POST", f"/api/v2/notification_templates/{template_id}/test/"
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
