@@ -545,8 +545,8 @@ def instrument_tool(func: Callable[..., Any]) -> Callable[..., Any]:
     """Wrap a tool function with fire-and-forget usage instrumentation.
 
     Signature, docstring and annotations are preserved so MCPServer's schema
-    generation is unaffected. Supports both sync and async tools. When
-    instrumentation is disabled (no log file) the wrapper is a thin
+    generation is unaffected. Supports both sync and async tools. When neither
+    a file sink nor central stdout logging is enabled, the wrapper is a thin
     pass-through.
     """
 

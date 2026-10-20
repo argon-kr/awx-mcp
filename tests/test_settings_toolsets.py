@@ -268,13 +268,22 @@ def test_passthrough_never_falls_back_to_static_credentials(monkeypatch):
 
 
 @pytest.mark.parametrize("flag,env_read_only", [(True, "false"), (False, "true")])
+@pytest.mark.parametrize(
+    "ssl_verify,expected_verify", [(None, True), ("true", True), ("false", False)]
+)
 def test_proxy_cli_read_only_reaches_the_outbound_header(
-    monkeypatch, flag, env_read_only
+    monkeypatch, flag, env_read_only, ssl_verify, expected_verify
 ):
     import awx_mcp
     from awx_mcp import proxy
 
     monkeypatch.delenv("ANSIBLE_BASE_URL", raising=False)
+    monkeypatch.delenv("ANSIBLE_CA_BUNDLE", raising=False)
+    monkeypatch.setenv("ANSIBLE_TOKEN", "fake-proxy-test-token")
+    if ssl_verify is None:
+        monkeypatch.delenv("ANSIBLE_SSL_VERIFY", raising=False)
+    else:
+        monkeypatch.setenv("ANSIBLE_SSL_VERIFY", ssl_verify)
     monkeypatch.setenv("AWX_MCP_READ_ONLY", env_read_only)
     argv = ["awx-mcp", "--remote", "https://central.test/mcp"]
     if flag:
@@ -290,8 +299,8 @@ def test_proxy_cli_read_only_reaches_the_outbound_header(
     with pytest.raises(SystemExit, match="captured before network"):
         awx_mcp.main()
     assert captured["headers"]["X-AWX-Read-Only"] == "true"
-    assert captured["headers"]["Authorization"].startswith("Bearer ")
-    assert captured["verify"] is True
+    assert captured["headers"]["Authorization"] == "Bearer fake-proxy-test-token"
+    assert captured["verify"] is expected_verify
 
 
 def test_reconfigure_uses_new_url_token_and_session():

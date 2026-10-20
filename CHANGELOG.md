@@ -208,6 +208,11 @@ independently of the tested AWX version (see [Versioning](#versioning)).
   counts. Tool count: 146 → 145.
 
 ### Fixed
+- Proxy CLI read-only tests now isolate token and CA settings and cover default,
+  enabled and disabled TLS verification, avoiding failures when CI explicitly
+  sets `ANSIBLE_SSL_VERIFY=false`.
+- The usage decorator docstring now includes central stdout logging when
+  describing whether instrumentation is enabled.
 - Tool error messages survive the upgrade to mcp >= 2.1. The SDK now masks any
   exception other than `ToolError` as a bare `Error executing tool <name>`
   (python-sdk #3314), which would have hidden every AWX 401/403/400 message,
