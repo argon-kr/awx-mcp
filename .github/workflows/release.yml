@@ -37,7 +37,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
-      - run: uv run pytest tests/ --cov=awx_mcp --cov-fail-under=80
+      - run: uv run pytest tests/ --cov=awx_mcp --cov-fail-under=100
       - run: uv build
       - name: Smoke test isolated wheel installation
         shell: bash

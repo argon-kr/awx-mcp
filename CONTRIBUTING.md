@@ -15,7 +15,31 @@ uv sync --dev
 Run tests:
 
 ```bash
-uv run pytest
+uv run pytest tests/ --cov=awx_mcp --cov-fail-under=100
+```
+
+The required metric is **statement coverage for all of `awx_mcp/`**, including
+isolated Python subprocesses. Coverage below 100% fails CI and release tests.
+This is an execution metric, not a claim of complete branch coverage or proof
+that every behavior is correct.
+
+`pyproject.toml` enables coverage.py's subprocess instrumentation and SIGTERM
+data saving. Subprocess tests that build a minimal environment must pass it
+through `tests.subprocess_helpers.coverage_env`, which forwards only coverage
+settings and keeps application credentials isolated. Always wait for child
+processes to exit so pytest-cov can combine their records. No additional source
+exclusions are used to reach the gate. Coverage.py's default exclusion of the
+existing `@overload` type declarations remains in effect, as listed in the JSON
+report's `excluded_lines`. All 35 source modules are measured.
+
+CI uploads combined `coverage.xml` and `coverage.json` for each Python version
+as `coverage-python-<version>` artifacts, retained for 14 days even on test
+failure. The JSON report lists executed and missing lines per source file.
+To generate the same records locally:
+
+```bash
+uv run pytest tests/ --cov=awx_mcp --cov-fail-under=100 \
+  --cov-report=term-missing --cov-report=xml --cov-report=json
 ```
 
 Run linter:
@@ -96,7 +120,7 @@ remain part of the full CI checks below.
    uv run ruff format --check .
    uv run mypy awx_mcp/
    uv run python scripts/check_doc_parity.py
-   uv run pytest tests/ -v --cov=awx_mcp --cov-fail-under=80
+   uv run pytest tests/ -v --cov=awx_mcp --cov-fail-under=100
    ```
 4. Add a line under `## [Unreleased]` in `CHANGELOG.md` for any user-visible change.
 5. Open a pull request against `main`. Describe what changed and why.

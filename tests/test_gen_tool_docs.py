@@ -13,6 +13,7 @@ from mcp.server.mcpserver import MCPServer
 from awx_mcp import server
 from awx_mcp.settings import Settings
 from scripts.gen_tool_docs import READMES, load_catalog
+from tests.subprocess_helpers import coverage_env
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "gen_tool_docs.py"
@@ -44,7 +45,7 @@ def run_generator(root, *args):
         [sys.executable, "-c", driver, str(SCRIPT), "--root", str(root), *args],
         capture_output=True,
         text=True,
-        env={"PATH": os.environ["PATH"], "AWX_MCP_TOOLSETS": "invalid"},
+        env=coverage_env({"PATH": os.environ["PATH"], "AWX_MCP_TOOLSETS": "invalid"}),
         check=False,
     )
 

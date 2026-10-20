@@ -15,6 +15,8 @@ import subprocess
 import sys
 import textwrap
 
+from tests.subprocess_helpers import coverage_env
+
 _PROBE = textwrap.dedent(
     """
     import json, os, sys
@@ -40,7 +42,7 @@ def _run(env_extra: dict[str, str]):
         [sys.executable, "-c", _PROBE],
         capture_output=True,
         text=True,
-        env=env,
+        env=coverage_env(env),
         check=False,
     )
 

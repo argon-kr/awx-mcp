@@ -15,6 +15,7 @@ import sys
 import textwrap
 
 from awx_mcp.server import warn_if_exposed
+from tests.subprocess_helpers import coverage_env
 
 GATED_TOOLS = (
     "create_credential",
@@ -61,7 +62,7 @@ def _list_registered_tools(env_value: str | None) -> list[str]:
         [sys.executable, "-c", script],
         capture_output=True,
         text=True,
-        env=env,
+        env=coverage_env(env),
         check=True,
     )
     return json.loads(result.stdout)

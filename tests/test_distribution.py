@@ -12,6 +12,8 @@ import pytest
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+from tests.subprocess_helpers import coverage_env
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -47,10 +49,12 @@ def test_stdio_modes_initialize_and_list_tools(mode):
             command=sys.executable,
             args=["-m", "awx_mcp", *mode],
             cwd=str(ROOT),
-            env={
-                "ANSIBLE_BASE_URL": "https://awx.example.com/",
-                "ANSIBLE_TOKEN": "fake-distribution-smoke-token",
-            },
+            env=coverage_env(
+                {
+                    "ANSIBLE_BASE_URL": "https://awx.example.com/",
+                    "ANSIBLE_TOKEN": "fake-distribution-smoke-token",
+                }
+            ),
         )
         with anyio.fail_after(15):
             async with stdio_client(params) as (read, write):

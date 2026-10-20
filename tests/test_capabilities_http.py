@@ -17,6 +17,7 @@ from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.exceptions import MCPError
 
+from tests.subprocess_helpers import coverage_env
 from tests.test_integration_passthrough import HOST, REPO, _free_port, _stop, _wait_port
 
 
@@ -64,7 +65,7 @@ def central_fixture():
             str(central_port),
         ],
         cwd=REPO,
-        env=env,
+        env=coverage_env(env),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
@@ -127,7 +128,9 @@ def test_stdio_capability_parity_and_authenticated_resource_read(central_fixture
         args.extend(["--stdio", "--read-only"])
     else:
         args.extend(["--remote", central_url])
-    params = StdioServerParameters(command=sys.executable, args=args, env=env, cwd=REPO)
+    params = StdioServerParameters(
+        command=sys.executable, args=args, env=coverage_env(env), cwd=REPO
+    )
 
     async def run():
         async with stdio_client(params) as io:

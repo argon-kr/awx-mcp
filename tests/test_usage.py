@@ -21,6 +21,7 @@ import pytest  # noqa: E402
 
 import awx_mcp.usage as usage  # noqa: E402
 from tests.conftest import set_test_settings
+from tests.subprocess_helpers import coverage_env
 
 REQUIRED_FIELDS = {
     "@timestamp",
@@ -488,7 +489,7 @@ def _run_server_log_subprocess(tmp_path, log_format: str):
         capture_output=True,
         text=True,
         check=True,
-        env={"PATH": "/usr/bin:/bin", "PYTHONPATH": "."},
+        env=coverage_env({"PATH": "/usr/bin:/bin", "PYTHONPATH": "."}),
     )
     return log_file, result
 
@@ -666,7 +667,7 @@ def test_server_log_file_unset_creates_no_file(tmp_path):
         capture_output=True,
         text=True,
         check=True,
-        env={"PATH": "/usr/bin:/bin", "PYTHONPATH": "."},
+        env=coverage_env({"PATH": "/usr/bin:/bin", "PYTHONPATH": "."}),
     )
     assert result.stdout == "STDOUT_SENTINEL"
     assert not marker.exists()

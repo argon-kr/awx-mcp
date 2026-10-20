@@ -22,6 +22,7 @@ os.environ.setdefault("ANSIBLE_TOKEN", "fake-test-token")
 import pytest  # noqa: E402
 
 from tests.conftest import set_test_settings
+from tests.subprocess_helpers import coverage_env
 
 
 def _subprocess(script: str, env_extra: dict[str, str]):
@@ -31,7 +32,7 @@ def _subprocess(script: str, env_extra: dict[str, str]):
         [sys.executable, "-c", textwrap.dedent(script).strip()],
         capture_output=True,
         text=True,
-        env=env,
+        env=coverage_env(env),
         check=False,
     )
 

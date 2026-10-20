@@ -21,6 +21,7 @@ import textwrap  # noqa: E402
 import pytest  # noqa: E402
 
 from awx_mcp.client import AnsibleClient  # noqa: E402
+from tests.subprocess_helpers import coverage_env  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # port validation
@@ -93,7 +94,7 @@ def _run_subprocess_tool_listing(env_value: str | None) -> list[str]:
         capture_output=True,
         text=True,
         check=True,
-        env={"PATH": "/usr/bin:/bin", "PYTHONPATH": "."},
+        env=coverage_env({"PATH": "/usr/bin:/bin", "PYTHONPATH": "."}),
     )
     return json.loads(result.stdout)
 

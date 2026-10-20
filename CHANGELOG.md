@@ -72,8 +72,9 @@ independently of the tested AWX version (see [Versioning](#versioning)).
   counts as healthy; stdio-mode containers show unhealthy — the image is
   `--serve`-focused), and pins the `uv` base image to a versioned digest
   instead of `:latest`.
-- CI coverage gate: `pytest-cov` added to the dev dependency group and the CI
-  test step now enforces `--cov-fail-under=80`.
+- CI and release tests require 100% statement coverage of `awx_mcp/`, including
+  isolated Python subprocesses. CI retains combined XML/JSON execution records
+  per Python version for 14 days. Coverage instrumentation remains dev-only.
 - New tests for `warn_if_exposed` (local/non-local × TLS), the proxy relay's
   exception and upstream-error paths, and a session-reuse test suite.
 - `scripts/check_doc_parity.py` now also verifies that user-facing
@@ -208,6 +209,10 @@ independently of the tested AWX version (see [Versioning](#versioning)).
   counts. Tool count: 146 → 145.
 
 ### Fixed
+- Isolated startup and integration subprocesses now contribute coverage data.
+  Previously their execution was absent from the aggregate report. Added HTTP
+  contract, configuration, cache race and logging failure regressions for
+  genuinely untested paths without excluding source files or lines.
 - Proxy CLI read-only tests now isolate token and CA settings and cover default,
   enabled and disabled TLS verification, avoiding failures when CI explicitly
   sets `ANSIBLE_SSL_VERIFY=false`.

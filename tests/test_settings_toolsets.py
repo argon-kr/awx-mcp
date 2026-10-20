@@ -10,12 +10,13 @@ import pytest
 from mcp.server.mcpserver import MCPServer
 
 from awx_mcp import server
+from tests.subprocess_helpers import coverage_env
 
 
 def test_imports_without_configuration_have_no_startup_side_effects():
     result = subprocess.run(
         [sys.executable, "-c", "import awx_mcp.server, awx_mcp.client; print('ok')"],
-        env={"PATH": "/usr/bin:/bin", "PYTHONPATH": "."},
+        env=coverage_env({"PATH": "/usr/bin:/bin", "PYTHONPATH": "."}),
         capture_output=True,
         text=True,
         check=False,
@@ -150,13 +151,15 @@ def test_registry_rejects_unknown_or_empty_selection(selection):
 def test_cli_rejects_invalid_config_with_exit_two(argv, env, message):
     result = subprocess.run(
         [sys.executable, "-m", "awx_mcp", *argv],
-        env={
-            "PATH": "/usr/bin:/bin",
-            "PYTHONPATH": ".",
-            "ANSIBLE_BASE_URL": "https://awx.test",
-            "ANSIBLE_TOKEN": "dummy",
-            **env,
-        },
+        env=coverage_env(
+            {
+                "PATH": "/usr/bin:/bin",
+                "PYTHONPATH": ".",
+                "ANSIBLE_BASE_URL": "https://awx.test",
+                "ANSIBLE_TOKEN": "dummy",
+                **env,
+            }
+        ),
         capture_output=True,
         text=True,
         check=False,
@@ -327,7 +330,7 @@ def test_importing_tool_modules_only_collects_specs():
             "assert len(server._REGISTRY) == 145; "
             "assert not server.mcp._tool_manager.list_tools()",
         ],
-        env={"PATH": "/usr/bin:/bin", "PYTHONPATH": "."},
+        env=coverage_env({"PATH": "/usr/bin:/bin", "PYTHONPATH": "."}),
         capture_output=True,
         text=True,
         check=False,
@@ -356,12 +359,14 @@ def test_version_ignores_invalid_environment_without_loading_server():
             "\ntry: awx_mcp.main()"
             "\nfinally: assert 'awx_mcp.server' not in sys.modules",
         ],
-        env={
-            "PATH": "/usr/bin:/bin",
-            "PYTHONPATH": ".",
-            "AWX_MCP_PORT": "invalid",
-            "AWX_MCP_TRANSPORT": "retired",
-        },
+        env=coverage_env(
+            {
+                "PATH": "/usr/bin:/bin",
+                "PYTHONPATH": ".",
+                "AWX_MCP_PORT": "invalid",
+                "AWX_MCP_TRANSPORT": "retired",
+            }
+        ),
         capture_output=True,
         text=True,
         check=False,
