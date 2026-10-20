@@ -56,14 +56,26 @@ def test_concurrent_identity_resolution_reuses_winning_cache(monkeypatch, auth_m
     set_test_settings(monkeypatch, auth_mode=auth_mode)
     monkeypatch.setattr(client, "get_request_token", lambda: "synthetic-caller-token")
     barrier = threading.Barrier(2)
+    winner_stored = threading.Event()
+    caller = threading.local()
 
     def lookup(**kwargs):
         barrier.wait(timeout=5)
-        return "alice"
+        if caller.role == "winner":
+            return "alice"
+        assert winner_stored.wait(timeout=5)
+        return "stale-result"
+
+    def resolve(role):
+        caller.role = role
+        value = usage.resolve_user_identifier()
+        if role == "winner":
+            winner_stored.set()
+        return value
 
     monkeypatch.setattr(usage, "_lookup_me_username", lookup)
     with ThreadPoolExecutor(max_workers=2) as pool:
-        values = list(pool.map(lambda _: usage.resolve_user_identifier(), range(2)))
+        values = list(pool.map(resolve, ("winner", "late")))
     assert values == ["alice", "alice"]
 
     def unexpected_network(**kwargs):
