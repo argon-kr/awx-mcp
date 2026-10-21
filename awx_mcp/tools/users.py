@@ -4,7 +4,6 @@
 Ansible MCP Server - User Management Tools
 """
 
-import json
 from typing import Any
 
 from mcp.server.mcpserver import Context
@@ -12,6 +11,7 @@ from pydantic import BaseModel
 
 from ..client import get_ansible_client, handle_pagination
 from ..server import maybe_credential_management_tool, read_tool, write_tool
+from ..utils import to_json
 
 
 class PasswordInput(BaseModel):
@@ -20,7 +20,7 @@ class PasswordInput(BaseModel):
 
 @read_tool
 def list_users(
-    username: str = None,
+    username: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> str:
@@ -51,7 +51,7 @@ def list_users(
             params["username__icontains"] = username.strip()
 
         envelope = handle_pagination(client, "/api/v2/users/", params, with_meta=True)
-        return json.dumps(envelope, indent=2)
+        return to_json(envelope)
 
 
 @read_tool
@@ -67,7 +67,7 @@ def get_user(user_id: int) -> str:
     """
     with get_ansible_client() as client:
         user = client.request("GET", f"/api/v2/users/{user_id}/")
-        return json.dumps(user, indent=2)
+        return to_json(user)
 
 
 @maybe_credential_management_tool
@@ -109,7 +109,7 @@ async def create_user(
         schema=PasswordInput,
     )
     if result.action != "accept":
-        return json.dumps(
+        return to_json(
             {"status": "cancelled", "message": "Password input was declined"}
         )
 
@@ -124,20 +124,20 @@ async def create_user(
             "is_system_auditor": is_system_auditor,
         }
         response = client.request("POST", "/api/v2/users/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @maybe_credential_management_tool
 async def update_user(
     user_id: int,
     ctx: Context,
-    username: str = None,
+    username: str | None = None,
     update_password: bool = False,
-    first_name: str = None,
-    last_name: str = None,
-    email: str = None,
-    is_superuser: bool = None,
-    is_system_auditor: bool = None,
+    first_name: str | None = None,
+    last_name: str | None = None,
+    email: str | None = None,
+    is_superuser: bool | None = None,
+    is_system_auditor: bool | None = None,
 ) -> str:
     """Update an AWX user account.
 
@@ -172,7 +172,7 @@ async def update_user(
             schema=PasswordInput,
         )
         if result.action != "accept":
-            return json.dumps(
+            return to_json(
                 {"status": "cancelled", "message": "Password input was declined"}
             )
         password = result.data.password
@@ -195,7 +195,7 @@ async def update_user(
             data["is_system_auditor"] = is_system_auditor
 
         response = client.request("PATCH", f"/api/v2/users/{user_id}/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -211,4 +211,4 @@ def delete_user(user_id: int) -> str:
     """
     with get_ansible_client() as client:
         client.request("DELETE", f"/api/v2/users/{user_id}/")
-        return json.dumps({"status": "success", "message": f"User {user_id} deleted"})
+        return to_json({"status": "success", "message": f"User {user_id} deleted"})

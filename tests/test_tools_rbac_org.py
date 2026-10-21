@@ -13,12 +13,14 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from awx_mcp.tools import notifications as notifications_mod
 from awx_mcp.tools import organizations as organizations_mod
 from awx_mcp.tools import rbac as rbac_mod
 from awx_mcp.tools import teams as teams_mod
 from awx_mcp.tools import workflow_jobs as workflow_jobs_mod
-from tests.conftest import fake_client_factory
+from tests.conftest import TOOL_ERRORS, fake_client_factory
 
 
 def _paginated(rows):
@@ -347,12 +349,12 @@ def test_list_object_roles_invalid_type_returns_error_without_calling_client():
     api.request.side_effect = AssertionError("client should not be called")
 
     with patch.object(rbac_mod, "get_ansible_client", new=fake_client_factory(api)):
-        out = json.loads(
-            rbac_mod.list_object_roles(resource_type="widgets", resource_id=1)
-        )
+        with pytest.raises(TOOL_ERRORS) as exc_info:
+            json.loads(
+                rbac_mod.list_object_roles(resource_type="widgets", resource_id=1)
+            )
 
-    assert out["status"] == "error"
-    assert "Invalid resource_type" in out["message"]
+    assert "Invalid resource_type" in str(exc_info.value)
     api.request.assert_not_called()
 
 

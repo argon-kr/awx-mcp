@@ -12,13 +12,15 @@ Covers HTTP method/endpoint/body construction and validation branches for:
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
+
+import pytest
 
 from awx_mcp.tools import inventories as inventories_mod
 from awx_mcp.tools import job_templates as jt_mod
 from awx_mcp.tools import projects as projects_mod
 from awx_mcp.tools import workflow_templates as wf_mod
-from tests.conftest import fake_client_factory
+from tests.conftest import TOOL_ERRORS, fake_client_factory
 
 
 def _paginated(rows):
@@ -65,11 +67,15 @@ def test_create_job_template_invalid_job_type_short_circuits(fake_client):
     with patch.object(
         jt_mod, "get_ansible_client", new=fake_client_factory(fake_client)
     ):
-        out = jt_mod.create_job_template(
-            name="n", inventory_id=1, project_id=1, playbook="p.yml", job_type="bogus"
-        )
+        with pytest.raises(TOOL_ERRORS):
+            jt_mod.create_job_template(
+                name="n",
+                inventory_id=1,
+                project_id=1,
+                playbook="p.yml",
+                job_type="bogus",
+            )
 
-    assert json.loads(out)["status"] == "error"
     fake_client.request.assert_not_called()
 
 
@@ -77,11 +83,11 @@ def test_create_job_template_invalid_verbosity_short_circuits(fake_client):
     with patch.object(
         jt_mod, "get_ansible_client", new=fake_client_factory(fake_client)
     ):
-        out = jt_mod.create_job_template(
-            name="n", inventory_id=1, project_id=1, playbook="p.yml", verbosity=99
-        )
+        with pytest.raises(TOOL_ERRORS):
+            jt_mod.create_job_template(
+                name="n", inventory_id=1, project_id=1, playbook="p.yml", verbosity=99
+            )
 
-    assert json.loads(out)["status"] == "error"
     fake_client.request.assert_not_called()
 
 
@@ -89,15 +95,15 @@ def test_create_job_template_invalid_extra_vars_short_circuits(fake_client):
     with patch.object(
         jt_mod, "get_ansible_client", new=fake_client_factory(fake_client)
     ):
-        out = jt_mod.create_job_template(
-            name="n",
-            inventory_id=1,
-            project_id=1,
-            playbook="p.yml",
-            extra_vars="not-json{{",
-        )
+        with pytest.raises(TOOL_ERRORS):
+            jt_mod.create_job_template(
+                name="n",
+                inventory_id=1,
+                project_id=1,
+                playbook="p.yml",
+                extra_vars="not-json{{",
+            )
 
-    assert json.loads(out)["status"] == "error"
     fake_client.request.assert_not_called()
 
 
@@ -159,9 +165,9 @@ def test_update_job_template_invalid_job_type_short_circuits(fake_client):
     with patch.object(
         jt_mod, "get_ansible_client", new=fake_client_factory(fake_client)
     ):
-        out = jt_mod.update_job_template(template_id=7, job_type="bogus")
+        with pytest.raises(TOOL_ERRORS):
+            jt_mod.update_job_template(template_id=7, job_type="bogus")
 
-    assert json.loads(out)["status"] == "error"
     fake_client.request.assert_not_called()
 
 
@@ -169,9 +175,9 @@ def test_update_job_template_invalid_verbosity_short_circuits(fake_client):
     with patch.object(
         jt_mod, "get_ansible_client", new=fake_client_factory(fake_client)
     ):
-        out = jt_mod.update_job_template(template_id=7, verbosity=-1)
+        with pytest.raises(TOOL_ERRORS):
+            jt_mod.update_job_template(template_id=7, verbosity=-1)
 
-    assert json.loads(out)["status"] == "error"
     fake_client.request.assert_not_called()
 
 
@@ -179,9 +185,9 @@ def test_update_job_template_invalid_extra_vars_short_circuits(fake_client):
     with patch.object(
         jt_mod, "get_ansible_client", new=fake_client_factory(fake_client)
     ):
-        out = jt_mod.update_job_template(template_id=7, extra_vars="{bad json")
+        with pytest.raises(TOOL_ERRORS):
+            jt_mod.update_job_template(template_id=7, extra_vars="{bad json")
 
-    assert json.loads(out)["status"] == "error"
     fake_client.request.assert_not_called()
 
 
@@ -199,9 +205,9 @@ def test_launch_job_invalid_extra_vars_short_circuits(fake_client):
     with patch.object(
         jt_mod, "get_ansible_client", new=fake_client_factory(fake_client)
     ):
-        out = jt_mod.launch_job(template_id=1, extra_vars="not-json")
+        with pytest.raises(TOOL_ERRORS):
+            jt_mod.launch_job(template_id=1, extra_vars="not-json")
 
-    assert json.loads(out)["status"] == "error"
     fake_client.request.assert_not_called()
 
 
@@ -254,9 +260,9 @@ def test_set_job_template_survey_invalid_json_short_circuits(fake_client):
     with patch.object(
         jt_mod, "get_ansible_client", new=fake_client_factory(fake_client)
     ):
-        out = jt_mod.set_job_template_survey(3, "not-json")
+        with pytest.raises(TOOL_ERRORS):
+            jt_mod.set_job_template_survey(3, "not-json")
 
-    assert json.loads(out)["status"] == "error"
     fake_client.request.assert_not_called()
 
 
@@ -360,11 +366,11 @@ def test_create_workflow_template_invalid_extra_vars_short_circuits(fake_client)
     with patch.object(
         wf_mod, "get_ansible_client", new=fake_client_factory(fake_client)
     ):
-        out = wf_mod.create_workflow_template(
-            name="n", organization_id=1, extra_vars="bad{{"
-        )
+        with pytest.raises(TOOL_ERRORS):
+            wf_mod.create_workflow_template(
+                name="n", organization_id=1, extra_vars="bad{{"
+            )
 
-    assert json.loads(out)["status"] == "error"
     fake_client.request.assert_not_called()
 
 
@@ -421,9 +427,9 @@ def test_update_workflow_template_invalid_extra_vars_short_circuits(fake_client)
     with patch.object(
         wf_mod, "get_ansible_client", new=fake_client_factory(fake_client)
     ):
-        out = wf_mod.update_workflow_template(template_id=8, extra_vars="bad{{")
+        with pytest.raises(TOOL_ERRORS):
+            wf_mod.update_workflow_template(template_id=8, extra_vars="bad{{")
 
-    assert json.loads(out)["status"] == "error"
     fake_client.request.assert_not_called()
 
 
@@ -444,9 +450,9 @@ def test_launch_workflow_invalid_extra_vars_short_circuits(fake_client):
     with patch.object(
         wf_mod, "get_ansible_client", new=fake_client_factory(fake_client)
     ):
-        out = wf_mod.launch_workflow(template_id=1, extra_vars="bad{{")
+        with pytest.raises(TOOL_ERRORS):
+            wf_mod.launch_workflow(template_id=1, extra_vars="bad{{")
 
-    assert json.loads(out)["status"] == "error"
     fake_client.request.assert_not_called()
 
 
@@ -494,9 +500,9 @@ def test_set_workflow_template_survey_invalid_json_short_circuits(fake_client):
     with patch.object(
         wf_mod, "get_ansible_client", new=fake_client_factory(fake_client)
     ):
-        out = wf_mod.set_workflow_template_survey(1, "not-json")
+        with pytest.raises(TOOL_ERRORS):
+            wf_mod.set_workflow_template_survey(1, "not-json")
 
-    assert json.loads(out)["status"] == "error"
     fake_client.request.assert_not_called()
 
 
@@ -557,11 +563,11 @@ def test_create_workflow_template_node_invalid_extra_data_short_circuits(fake_cl
     with patch.object(
         wf_mod, "get_ansible_client", new=fake_client_factory(fake_client)
     ):
-        out = wf_mod.create_workflow_template_node(
-            workflow_template_id=1, unified_job_template_id=2, extra_data="bad{{"
-        )
+        with pytest.raises(TOOL_ERRORS):
+            wf_mod.create_workflow_template_node(
+                workflow_template_id=1, unified_job_template_id=2, extra_data="bad{{"
+            )
 
-    assert json.loads(out)["status"] == "error"
     fake_client.request.assert_not_called()
 
 
@@ -684,11 +690,11 @@ def test_create_inventory_invalid_variables_short_circuits(fake_client):
     with patch.object(
         inventories_mod, "get_ansible_client", new=fake_client_factory(fake_client)
     ):
-        out = inventories_mod.create_inventory(
-            name="n", organization_id=1, variables="bad{{"
-        )
+        with pytest.raises(TOOL_ERRORS):
+            inventories_mod.create_inventory(
+                name="n", organization_id=1, variables="bad{{"
+            )
 
-    assert json.loads(out)["status"] == "error"
     fake_client.request.assert_not_called()
 
 
@@ -725,9 +731,9 @@ def test_update_inventory_invalid_variables_short_circuits(fake_client):
     with patch.object(
         inventories_mod, "get_ansible_client", new=fake_client_factory(fake_client)
     ):
-        out = inventories_mod.update_inventory(inventory_id=3, variables="bad{{")
+        with pytest.raises(TOOL_ERRORS):
+            inventories_mod.update_inventory(inventory_id=3, variables="bad{{")
 
-    assert json.loads(out)["status"] == "error"
     fake_client.request.assert_not_called()
 
 
@@ -780,11 +786,11 @@ def test_create_inventory_source_invalid_json_source_vars_short_circuits(fake_cl
     with patch.object(
         inventories_mod, "get_ansible_client", new=fake_client_factory(fake_client)
     ):
-        out = inventories_mod.create_inventory_source(
-            name="n", inventory_id=1, source="ec2", source_vars="{bad"
-        )
+        with pytest.raises(TOOL_ERRORS):
+            inventories_mod.create_inventory_source(
+                name="n", inventory_id=1, source="ec2", source_vars="{bad"
+            )
 
-    assert json.loads(out)["status"] == "error"
     fake_client.request.assert_not_called()
 
 
@@ -840,9 +846,9 @@ def test_update_inventory_source_invalid_json_source_vars_short_circuits(fake_cl
     with patch.object(
         inventories_mod, "get_ansible_client", new=fake_client_factory(fake_client)
     ):
-        out = inventories_mod.update_inventory_source(source_id=9, source_vars="{bad")
+        with pytest.raises(TOOL_ERRORS):
+            inventories_mod.update_inventory_source(source_id=9, source_vars="{bad")
 
-    assert json.loads(out)["status"] == "error"
     fake_client.request.assert_not_called()
 
 
@@ -936,9 +942,9 @@ def test_create_project_invalid_scm_type_short_circuits(fake_client):
     with patch.object(
         projects_mod, "get_ansible_client", new=fake_client_factory(fake_client)
     ):
-        out = projects_mod.create_project(name="n", organization_id=1, scm_type="bogus")
+        with pytest.raises(TOOL_ERRORS):
+            projects_mod.create_project(name="n", organization_id=1, scm_type="bogus")
 
-    assert json.loads(out)["status"] == "error"
     fake_client.request.assert_not_called()
 
 
@@ -946,9 +952,9 @@ def test_create_project_missing_scm_url_for_non_manual_short_circuits(fake_clien
     with patch.object(
         projects_mod, "get_ansible_client", new=fake_client_factory(fake_client)
     ):
-        out = projects_mod.create_project(name="n", organization_id=1, scm_type="git")
+        with pytest.raises(TOOL_ERRORS):
+            projects_mod.create_project(name="n", organization_id=1, scm_type="git")
 
-    assert json.loads(out)["status"] == "error"
     fake_client.request.assert_not_called()
 
 
@@ -995,9 +1001,9 @@ def test_update_project_invalid_scm_type_short_circuits(fake_client):
     with patch.object(
         projects_mod, "get_ansible_client", new=fake_client_factory(fake_client)
     ):
-        out = projects_mod.update_project(project_id=4, scm_type="bogus")
+        with pytest.raises(TOOL_ERRORS):
+            projects_mod.update_project(project_id=4, scm_type="bogus")
 
-    assert json.loads(out)["status"] == "error"
     fake_client.request.assert_not_called()
 
 
@@ -1086,9 +1092,9 @@ def test_get_project_update_stdout_invalid_format_short_circuits(fake_client):
     with patch.object(
         projects_mod, "get_ansible_client", new=fake_client_factory(fake_client)
     ):
-        out = projects_mod.get_project_update_stdout(update_id=11, format="bogus")
+        with pytest.raises(TOOL_ERRORS):
+            projects_mod.get_project_update_stdout(update_id=11, format="bogus")
 
-    assert json.loads(out)["status"] == "error"
     fake_client.request.assert_not_called()
 
 
@@ -1101,28 +1107,25 @@ def test_get_project_update_stdout_json_format_uses_client_request(fake_client):
 
     assert fake_client.request.call_args.args == (
         "GET",
-        "/api/v2/project_updates/11/stdout/?format=json",
+        "/api/v2/project_updates/11/stdout/",
     )
+    assert fake_client.request.call_args.kwargs["params"] == {"format": "json"}
     assert json.loads(out) == {"content": "log text"}
 
 
-def test_get_project_update_stdout_txt_format_uses_raw_session_get(fake_client):
-    fake_client.base_url = "https://awx.example.com"
-    fake_client.get_headers.return_value = {"Authorization": "Bearer x"}
-    fake_response = MagicMock(status_code=200, text="PLAY [all] ***")
-    fake_client.session.get.return_value = fake_response
+def test_get_project_update_stdout_txt_goes_through_request_text(fake_client):
+    """Non-JSON formats use client.request_text, i.e. the same _send path as
+    every other call (origin check, timeout, typed + secret-masked errors)."""
+    fake_client.request_text.return_value = "PLAY [all] ***"
 
     with patch.object(
         projects_mod, "get_ansible_client", new=fake_client_factory(fake_client)
     ):
         out = projects_mod.get_project_update_stdout(update_id=11, format="txt")
 
-    fake_client._validate_url.assert_called_once()
-    called_url = fake_client._validate_url.call_args.args[0]
-    assert called_url == (
-        "https://awx.example.com/api/v2/project_updates/11/stdout/?format=txt"
+    fake_client.request_text.assert_called_once_with(
+        "GET", "/api/v2/project_updates/11/stdout/", params={"format": "txt"}
     )
-    fake_client.session.get.assert_called_once()
     assert json.loads(out) == {"status": "success", "stdout": "PLAY [all] ***"}
     fake_client.request.assert_not_called()
 

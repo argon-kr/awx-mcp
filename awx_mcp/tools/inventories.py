@@ -6,12 +6,11 @@ Ansible MCP Server - Inventory & Inventory Source Tools
 Inventory CRUD, inventory source management, and inventory update monitoring.
 """
 
-import json
 from typing import Any
 
 from ..client import get_ansible_client, handle_pagination
 from ..server import read_tool, write_tool
-from ..utils import validate_json_str
+from ..utils import to_json, validate_json_str
 
 # =============================================================================
 # Inventory Management
@@ -20,7 +19,7 @@ from ..utils import validate_json_str
 
 @read_tool
 def list_inventories(
-    inventory_name: str = None,
+    inventory_name: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> str:
@@ -53,7 +52,7 @@ def list_inventories(
         inventories = handle_pagination(
             client, "/api/v2/inventories/", params, with_meta=True
         )
-        return json.dumps(inventories, indent=2)
+        return to_json(inventories)
 
 
 @read_tool
@@ -69,7 +68,7 @@ def get_inventory(inventory_id: int) -> str:
     """
     with get_ansible_client() as client:
         inventory = client.request("GET", f"/api/v2/inventories/{inventory_id}/")
-        return json.dumps(inventory, indent=2)
+        return to_json(inventory)
 
 
 @write_tool()
@@ -88,9 +87,7 @@ def create_inventory(
         description: Description of the inventory
         variables: JSON string of inventory-level variables
     """
-    error = validate_json_str(variables, "variables")
-    if error:
-        return error
+    validate_json_str(variables, "variables")
 
     with get_ansible_client() as client:
         data = {
@@ -100,15 +97,15 @@ def create_inventory(
             "variables": variables,
         }
         response = client.request("POST", "/api/v2/inventories/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(idempotent=True)
 def update_inventory(
     inventory_id: int,
-    name: str = None,
-    description: str = None,
-    variables: str = None,
+    name: str | None = None,
+    description: str | None = None,
+    variables: str | None = None,
 ) -> str:
     """Update AWX inventory metadata.
 
@@ -123,9 +120,7 @@ def update_inventory(
         variables: JSON string of inventory-level variables
     """
     if variables is not None:
-        error = validate_json_str(variables, "variables")
-        if error:
-            return error
+        validate_json_str(variables, "variables")
 
     with get_ansible_client() as client:
         data: dict[str, Any] = {}
@@ -139,7 +134,7 @@ def update_inventory(
         response = client.request(
             "PATCH", f"/api/v2/inventories/{inventory_id}/", data=data
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -155,7 +150,7 @@ def delete_inventory(inventory_id: int) -> str:
     """
     with get_ansible_client() as client:
         client.request("DELETE", f"/api/v2/inventories/{inventory_id}/")
-        return json.dumps(
+        return to_json(
             {"status": "success", "message": f"Inventory {inventory_id} deleted"}
         )
 
@@ -167,8 +162,8 @@ def delete_inventory(inventory_id: int) -> str:
 
 @read_tool
 def list_inventory_sources(
-    inventory_id: int = None,
-    source_name: str = None,
+    inventory_id: int | None = None,
+    source_name: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> str:
@@ -205,7 +200,7 @@ def list_inventory_sources(
         else:
             endpoint = "/api/v2/inventory_sources/"
         sources = handle_pagination(client, endpoint, params, with_meta=True)
-        return json.dumps(sources, indent=2)
+        return to_json(sources)
 
 
 @read_tool
@@ -221,7 +216,7 @@ def get_inventory_source(source_id: int) -> str:
     """
     with get_ansible_client() as client:
         source = client.request("GET", f"/api/v2/inventory_sources/{source_id}/")
-        return json.dumps(source, indent=2)
+        return to_json(source)
 
 
 @write_tool()
@@ -231,7 +226,7 @@ def create_inventory_source(
     source: str,
     source_path: str = "",
     source_vars: str = "{}",
-    credential_id: int = None,
+    credential_id: int | None = None,
     overwrite: bool = False,
     overwrite_vars: bool = False,
     update_on_launch: bool = False,
@@ -258,9 +253,7 @@ def create_inventory_source(
     """
     looks_like_json = source_vars.strip()[:1] in ("{", "[")
     if looks_like_json:
-        error = validate_json_str(source_vars, "source_vars")
-        if error:
-            return error
+        validate_json_str(source_vars, "source_vars")
 
     with get_ansible_client() as client:
         data = {
@@ -277,21 +270,21 @@ def create_inventory_source(
         if credential_id is not None:
             data["credential"] = credential_id
         response = client.request("POST", "/api/v2/inventory_sources/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(idempotent=True)
 def update_inventory_source(
     source_id: int,
-    name: str = None,
-    source: str = None,
-    source_path: str = None,
-    source_vars: str = None,
-    credential_id: int = None,
-    overwrite: bool = None,
-    overwrite_vars: bool = None,
-    update_on_launch: bool = None,
-    description: str = None,
+    name: str | None = None,
+    source: str | None = None,
+    source_path: str | None = None,
+    source_vars: str | None = None,
+    credential_id: int | None = None,
+    overwrite: bool | None = None,
+    overwrite_vars: bool | None = None,
+    update_on_launch: bool | None = None,
+    description: str | None = None,
 ) -> str:
     """Update an existing AWX inventory source.
 
@@ -315,9 +308,7 @@ def update_inventory_source(
     if source_vars is not None:
         looks_like_json = source_vars.strip()[:1] in ("{", "[")
         if looks_like_json:
-            error = validate_json_str(source_vars, "source_vars")
-            if error:
-                return error
+            validate_json_str(source_vars, "source_vars")
 
     with get_ansible_client() as client:
         data: dict[str, Any] = {}
@@ -343,7 +334,7 @@ def update_inventory_source(
         response = client.request(
             "PATCH", f"/api/v2/inventory_sources/{source_id}/", data=data
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -361,7 +352,7 @@ def sync_inventory_source(source_id: int) -> str:
         response = client.request(
             "POST", f"/api/v2/inventory_sources/{source_id}/update/"
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -377,13 +368,13 @@ def delete_inventory_source(source_id: int) -> str:
     """
     with get_ansible_client() as client:
         client.request("DELETE", f"/api/v2/inventory_sources/{source_id}/")
-        return json.dumps(
+        return to_json(
             {"status": "success", "message": f"Inventory source {source_id} deleted"}
         )
 
 
 # =============================================================================
-# Inventory Update Monitoring (NEW)
+# Inventory Update Monitoring
 # =============================================================================
 
 
@@ -419,7 +410,7 @@ def list_inventory_updates(
             params,
             with_meta=True,
         )
-        return json.dumps(updates, indent=2)
+        return to_json(updates)
 
 
 @read_tool
@@ -434,7 +425,7 @@ def get_inventory_update(update_id: int) -> str:
     """
     with get_ansible_client() as client:
         update = client.request("GET", f"/api/v2/inventory_updates/{update_id}/")
-        return json.dumps(update, indent=2)
+        return to_json(update)
 
 
 @write_tool(destructive=True)
@@ -452,4 +443,4 @@ def cancel_inventory_update(update_id: int) -> str:
         response = client.request(
             "POST", f"/api/v2/inventory_updates/{update_id}/cancel/"
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)

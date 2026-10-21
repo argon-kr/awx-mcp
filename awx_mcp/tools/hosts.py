@@ -4,20 +4,18 @@
 Ansible MCP Server - Host Management Tools
 """
 
-import json
-from typing import Any
-
-from ..client import get_ansible_client, handle_pagination
+from ..client import get_ansible_client
 from ..server import read_tool, write_tool
-from ..utils import validate_json_str
+from ..utils import to_json, validate_json_str
+from ._helpers import delete_resource, drop_none, get_resource, list_resource
 
 
 @read_tool
 def list_hosts(
-    inventory_id: int = None,
+    inventory_id: int | None = None,
     limit: int = 20,
     offset: int = 0,
-    hostname: str = None,
+    hostname: str | None = None,
 ) -> str:
     """List AWX hosts.
 
@@ -40,18 +38,13 @@ def list_hosts(
         offset: Number of results to skip
     """
     with get_ansible_client() as client:
-        params: dict[str, Any] = {"limit": limit, "offset": offset}
-
-        if hostname and hostname.strip():
-            params["name__icontains"] = hostname.strip()
-
         if inventory_id is not None:
             endpoint = f"/api/v2/inventories/{inventory_id}/hosts/"
         else:
             endpoint = "/api/v2/hosts/"
-
-        hosts = handle_pagination(client, endpoint, params, with_meta=True)
-        return json.dumps(hosts, indent=2)
+        return list_resource(
+            client, endpoint, limit=limit, offset=offset, name=hostname
+        )
 
 
 @read_tool
@@ -66,8 +59,7 @@ def get_host(host_id: int) -> str:
         host_id: ID of the host (from list_hosts response)
     """
     with get_ansible_client() as client:
-        host = client.request("GET", f"/api/v2/hosts/{host_id}/")
-        return json.dumps(host, indent=2)
+        return get_resource(client, f"/api/v2/hosts/{host_id}/")
 
 
 @write_tool()
@@ -92,9 +84,7 @@ def create_host(
         description: Description of the host
         enabled: Whether the host is included in job runs
     """
-    error = validate_json_str(variables, "variables")
-    if error:
-        return error
+    validate_json_str(variables, "variables")
 
     with get_ansible_client() as client:
         data = {
@@ -105,16 +95,16 @@ def create_host(
             "enabled": enabled,
         }
         response = client.request("POST", "/api/v2/hosts/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(idempotent=True)
 def update_host(
     host_id: int,
-    name: str = None,
-    variables: str = None,
-    description: str = None,
-    enabled: bool = None,
+    name: str | None = None,
+    variables: str | None = None,
+    description: str | None = None,
+    enabled: bool | None = None,
 ) -> str:
     """Update AWX host metadata and variables.
 
@@ -130,23 +120,17 @@ def update_host(
         enabled: Whether the host is included in job runs
     """
     if variables is not None:
-        error = validate_json_str(variables, "variables")
-        if error:
-            return error
+        validate_json_str(variables, "variables")
 
     with get_ansible_client() as client:
-        data: dict[str, Any] = {}
-        if name is not None:
-            data["name"] = name
-        if variables is not None:
-            data["variables"] = variables
-        if description is not None:
-            data["description"] = description
-        if enabled is not None:
-            data["enabled"] = enabled
-
+        data = drop_none(
+            name=name,
+            variables=variables,
+            description=description,
+            enabled=enabled,
+        )
         response = client.request("PATCH", f"/api/v2/hosts/{host_id}/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -161,5 +145,6 @@ def delete_host(host_id: int) -> str:
         host_id: ID of the host (from list_hosts response)
     """
     with get_ansible_client() as client:
-        client.request("DELETE", f"/api/v2/hosts/{host_id}/")
-        return json.dumps({"status": "success", "message": f"Host {host_id} deleted"})
+        return delete_resource(
+            client, f"/api/v2/hosts/{host_id}/", message=f"Host {host_id} deleted"
+        )

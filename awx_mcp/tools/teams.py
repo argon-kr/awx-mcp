@@ -4,17 +4,17 @@
 Ansible MCP Server - Team Management Tools
 """
 
-import json
 from typing import Any
 
 from ..client import get_ansible_client, handle_pagination
 from ..server import read_tool, write_tool
+from ..utils import to_json
 
 
 @read_tool
 def list_teams(
-    organization_id: int = None,
-    team_name: str = None,
+    organization_id: int | None = None,
+    team_name: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> str:
@@ -52,7 +52,7 @@ def list_teams(
             endpoint = "/api/v2/teams/"
 
         envelope = handle_pagination(client, endpoint, params, with_meta=True)
-        return json.dumps(envelope, indent=2)
+        return to_json(envelope)
 
 
 @read_tool
@@ -68,7 +68,7 @@ def get_team(team_id: int) -> str:
     """
     with get_ansible_client() as client:
         team = client.request("GET", f"/api/v2/teams/{team_id}/")
-        return json.dumps(team, indent=2)
+        return to_json(team)
 
 
 @write_tool()
@@ -91,11 +91,13 @@ def create_team(name: str, organization_id: int, description: str = "") -> str:
             "description": description,
         }
         response = client.request("POST", "/api/v2/teams/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(idempotent=True)
-def update_team(team_id: int, name: str = None, description: str = None) -> str:
+def update_team(
+    team_id: int, name: str | None = None, description: str | None = None
+) -> str:
     """Update an AWX team.
 
     Use this to adjust team identity details while preserving existing RBAC
@@ -115,7 +117,7 @@ def update_team(team_id: int, name: str = None, description: str = None) -> str:
             data["description"] = description
 
         response = client.request("PATCH", f"/api/v2/teams/{team_id}/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -131,4 +133,4 @@ def delete_team(team_id: int) -> str:
     """
     with get_ansible_client() as client:
         client.request("DELETE", f"/api/v2/teams/{team_id}/")
-        return json.dumps({"status": "success", "message": f"Team {team_id} deleted"})
+        return to_json({"status": "success", "message": f"Team {team_id} deleted"})

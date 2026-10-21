@@ -4,22 +4,19 @@
 Ansible MCP Server - Job Management Tools
 """
 
-import json
 from typing import Any
 
 from ..client import (
-    DEFAULT_CONNECT_TIMEOUT,
-    DEFAULT_READ_TIMEOUT,
     get_ansible_client,
     handle_pagination,
 )
-from ..exceptions import AnsibleHTTPError
 from ..server import read_tool, write_tool
+from ..utils import to_json
 
 
 @read_tool
 def list_jobs(
-    status: str = None,
+    status: str | None = None,
     limit: int = 20,
     offset: int = 0,
     order_by: str = "-created",
@@ -56,7 +53,7 @@ def list_jobs(
             params["status"] = status
 
         jobs = handle_pagination(client, "/api/v2/jobs/", params, with_meta=True)
-        return json.dumps(jobs, indent=2)
+        return to_json(jobs)
 
 
 @read_tool
@@ -73,7 +70,7 @@ def get_job(job_id: int) -> str:
     """
     with get_ansible_client() as client:
         job = client.request("GET", f"/api/v2/jobs/{job_id}/")
-        return json.dumps(job, indent=2)
+        return to_json(job)
 
 
 @write_tool(destructive=True)
@@ -90,7 +87,7 @@ def cancel_job(job_id: int) -> str:
     """
     with get_ansible_client() as client:
         response = client.request("POST", f"/api/v2/jobs/{job_id}/cancel/")
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -106,7 +103,7 @@ def relaunch_job(job_id: int) -> str:
     """
     with get_ansible_client() as client:
         response = client.request("POST", f"/api/v2/jobs/{job_id}/relaunch/")
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @read_tool
@@ -131,7 +128,7 @@ def get_job_events(job_id: int, limit: int = 20, offset: int = 0) -> str:
         events = handle_pagination(
             client, f"/api/v2/jobs/{job_id}/job_events/", params, with_meta=True
         )
-        return json.dumps(events, indent=2)
+        return to_json(events)
 
 
 @read_tool
@@ -149,36 +146,14 @@ def get_job_stdout(job_id: int, format: str = "txt") -> str:
     """
     valid_formats = ["txt", "html", "json", "ansi", "txt_download", "ansi_download"]
     if format not in valid_formats:
-        return json.dumps(
-            {
-                "status": "error",
-                "message": (
-                    f"Invalid format. Must be one of: {', '.join(valid_formats)}"
-                ),
-            }
-        )
+        raise ValueError(f"Invalid format. Must be one of: {', '.join(valid_formats)}")
 
     with get_ansible_client() as client:
+        endpoint = f"/api/v2/jobs/{job_id}/stdout/"
         if format != "json":
-            url = f"{client.base_url}/api/v2/jobs/{job_id}/stdout/?format={format}"
-            client._validate_url(url)
-            response = client.session.get(
-                url,
-                headers=client.get_headers(),
-                timeout=(DEFAULT_CONNECT_TIMEOUT, DEFAULT_READ_TIMEOUT),
-            )
-            if response.status_code >= 400:
-                raise AnsibleHTTPError(
-                    f"Ansible API error: {response.status_code}"
-                    f" - {response.text[:500]}",
-                    status_code=response.status_code,
-                )
-            return json.dumps({"status": "success", "stdout": response.text})
-        else:
-            response = client.request(
-                "GET", f"/api/v2/jobs/{job_id}/stdout/?format={format}"
-            )
-            return json.dumps(response, indent=2)
+            text = client.request_text("GET", endpoint, params={"format": format})
+            return to_json({"status": "success", "stdout": text})
+        return to_json(client.request("GET", endpoint, params={"format": "json"}))
 
 
 @read_tool
@@ -205,4 +180,4 @@ def get_job_host_summaries(job_id: int, limit: int = 20, offset: int = 0) -> str
             params,
             with_meta=True,
         )
-        return json.dumps(summaries, indent=2)
+        return to_json(summaries)

@@ -10,15 +10,14 @@ plus an ``ANSIBLE_TOKEN`` env var) while all AWX access is attributed and logged
 centrally.
 
 This module deliberately never imports ``awx_mcp.server``: proxy users do not
-set ``ANSIBLE_BASE_URL`` (the central server manages AWX access), and importing
-``server`` would trigger its startup validation and crash. Outbound TLS settings
+set ``ANSIBLE_BASE_URL`` (the central server manages AWX access), and do not
+need the local server or tool catalog. Outbound TLS settings
 come from the shared, server-free :mod:`awx_mcp.tls_config`.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 import sys
 import time
 from typing import Any
@@ -34,16 +33,25 @@ from mcp.server.stdio import stdio_server
 from mcp.types import (
     CallToolRequestParams,
     CallToolResult,
+    GetPromptRequestParams,
+    GetPromptResult,
+    InitializeResult,
     InputRequiredResult,
     InputResponses,
+    ListPromptsResult,
+    ListResourcesResult,
+    ListResourceTemplatesResult,
     ListToolsResult,
     PaginatedRequestParams,
+    ReadResourceRequestParams,
+    ReadResourceResult,
     TextContent,
 )
 
+from .settings import Settings, configure_settings, get_settings
 from .tls_config import resolve_ssl_verify
 from .usage import record_proxy_tool_call
-from .utils import mask_secrets
+from .utils import mask_secrets, package_version
 
 logger = logging.getLogger("awx-mcp.proxy")
 
@@ -51,10 +59,6 @@ logger = logging.getLogger("awx-mcp.proxy")
 # finishes its AWX request (which itself allows a long read), so the proxy must
 # not time out first.
 _HTTP_TIMEOUT = httpx2.Timeout(connect=10.0, read=300.0, write=30.0, pool=10.0)
-
-
-def _truthy(value: str | None) -> bool:
-    return (value or "").lower() in ("true", "1", "yes")
 
 
 def _first_error_text(content: list[Any]) -> str | None:
@@ -141,15 +145,106 @@ async def _relay_tool_call(
         )
 
 
+def _create_proxy(
+    upstream: ClientSession,
+    initialized: InitializeResult,
+    *,
+    usage_user: str,
+    central_host: str,
+) -> Server:
+    """Relay supported capabilities over the same authenticated upstream session.
+
+    Return whole SDK results to preserve pagination, MIME, content and metadata.
+    Resource/prompt failures propagate as JSON-RPC errors, never content strings.
+    Subscriptions and change notifications are not advertised or relayed.
+    """
+
+    async def list_tools(
+        _ctx: ServerRequestContext[Any, Any], params: PaginatedRequestParams | None
+    ) -> ListToolsResult:
+        return await upstream.list_tools(params=params)
+
+    async def call_tool(
+        _ctx: ServerRequestContext[Any, Any], params: CallToolRequestParams
+    ) -> CallToolResult | InputRequiredResult:
+        return await _relay_tool_call(
+            upstream,
+            params.name,
+            params.arguments or {},
+            usage_user=usage_user,
+            central_host=central_host,
+            input_responses=params.input_responses,
+            request_state=params.request_state,
+        )
+
+    async def list_resources(
+        _ctx: ServerRequestContext[Any, Any], params: PaginatedRequestParams | None
+    ) -> ListResourcesResult:
+        return await upstream.list_resources(params=params)
+
+    async def list_templates(
+        _ctx: ServerRequestContext[Any, Any], params: PaginatedRequestParams | None
+    ) -> ListResourceTemplatesResult:
+        return await upstream.list_resource_templates(params=params)
+
+    async def read_resource(
+        _ctx: ServerRequestContext[Any, Any], params: ReadResourceRequestParams
+    ) -> ReadResourceResult | InputRequiredResult:
+        return await upstream.read_resource(
+            params.uri,
+            allow_input_required=True,
+            input_responses=params.input_responses,
+            request_state=params.request_state,
+            meta=params.meta,
+        )
+
+    async def list_prompts(
+        _ctx: ServerRequestContext[Any, Any], params: PaginatedRequestParams | None
+    ) -> ListPromptsResult:
+        return await upstream.list_prompts(params=params)
+
+    async def get_prompt(
+        _ctx: ServerRequestContext[Any, Any], params: GetPromptRequestParams
+    ) -> GetPromptResult | InputRequiredResult:
+        return await upstream.get_prompt(
+            params.name,
+            params.arguments,
+            allow_input_required=True,
+            input_responses=params.input_responses,
+            request_state=params.request_state,
+            meta=params.meta,
+        )
+
+    info, capabilities = initialized.server_info, initialized.capabilities
+    return Server(
+        "awx-mcp-proxy",
+        version=package_version(),
+        title=f"{info.title or info.name} (via proxy)",
+        instructions=initialized.instructions,
+        website_url=info.website_url,
+        on_list_tools=list_tools if capabilities.tools is not None else None,
+        on_call_tool=call_tool if capabilities.tools is not None else None,
+        on_list_resources=list_resources
+        if capabilities.resources is not None
+        else None,
+        on_list_resource_templates=(
+            list_templates if capabilities.resources is not None else None
+        ),
+        on_read_resource=read_resource if capabilities.resources is not None else None,
+        on_list_prompts=list_prompts if capabilities.prompts is not None else None,
+        on_get_prompt=get_prompt if capabilities.prompts is not None else None,
+    )
+
+
 async def _run_proxy_async(url: str, token: str, ssl_verify: bool | str) -> None:
     headers = {"Authorization": f"Bearer {token}"}
     # A user may restrict their own session to read-only; the central server
     # enforces it per request. This can only tighten access.
-    if _truthy(os.environ.get("AWX_MCP_READ_ONLY")):
+    if get_settings().read_only:
         headers["X-AWX-Read-Only"] = "true"
 
     central_host = urlparse(url).hostname or "unknown"
-    usage_user = os.environ.get("AWX_MCP_USAGE_USER") or "local"
+    usage_user = get_settings().usage_user or "local"
 
     async with httpx2.AsyncClient(
         headers=headers, verify=ssl_verify, timeout=_HTTP_TIMEOUT
@@ -159,40 +254,14 @@ async def _run_proxy_async(url: str, token: str, ssl_verify: bool | str) -> None
             write_stream,
         ):
             async with ClientSession(read_stream, write_stream) as upstream:
-                await upstream.initialize()
+                init_result = await upstream.initialize()
                 logger.info("Connected to central awx-mcp at %s", url)
 
-                async def _list_tools(
-                    _ctx: ServerRequestContext[Any, Any],
-                    params: PaginatedRequestParams | None,
-                ) -> ListToolsResult:
-                    # A transport failure here raises, which the lowlevel server
-                    # converts to a JSON-RPC error (ListToolsResult has no
-                    # is_error field). The result is relayed whole so the central
-                    # server's next_cursor drives the client's pagination.
-                    return await upstream.list_tools(params=params)
-
-                async def _call_tool(
-                    _ctx: ServerRequestContext[Any, Any],
-                    params: CallToolRequestParams,
-                ) -> CallToolResult | InputRequiredResult:
-                    return await _relay_tool_call(
-                        upstream,
-                        params.name,
-                        params.arguments or {},
-                        usage_user=usage_user,
-                        central_host=central_host,
-                        input_responses=params.input_responses,
-                        request_state=params.request_state,
-                    )
-
-                # mcp 2.x replaced the @server.list_tools()/@server.call_tool()
-                # decorators with these constructor hooks, so the handlers are
-                # defined above and wired in here.
-                proxy = Server(
-                    "awx-mcp-proxy",
-                    on_list_tools=_list_tools,
-                    on_call_tool=_call_tool,
+                proxy = _create_proxy(
+                    upstream,
+                    init_result,
+                    usage_user=usage_user,
+                    central_host=central_host,
                 )
 
                 init_opts = proxy.create_initialization_options()
@@ -200,7 +269,7 @@ async def _run_proxy_async(url: str, token: str, ssl_verify: bool | str) -> None
                     await proxy.run(stdio_read, stdio_write, init_opts)
 
 
-def run_proxy(url: str) -> None:
+def run_proxy(url: str, settings: Settings | None = None) -> None:
     """Run the stdio<->central relay until stdin closes.
 
     Reads the caller's token from ``ANSIBLE_TOKEN`` (PAT only — username/password
@@ -209,21 +278,26 @@ def run_proxy(url: str) -> None:
     to the central awx-mcp, not to AWX). Exits non-zero with a clear message on
     a fatal startup/connection error.
     """
+    settings = settings or Settings.from_env(
+        overrides={"remote_url": url, "transport": "proxy"}
+    )
+    try:
+        settings.validate_startup()
+        ssl_verify = resolve_ssl_verify(logger, url, settings)
+    except ValueError as exc:
+        sys.exit(str(exc))
+    configure_settings(settings)
+    from . import usage
+
+    usage.configure()
     logging.basicConfig(
-        level=os.environ.get("ANSIBLE_LOG_LEVEL", "INFO").upper(),
+        level=settings.log_level,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         stream=sys.stderr,
     )
 
-    token = os.environ.get("ANSIBLE_TOKEN")
-    if not token:
-        sys.exit(
-            "ANSIBLE_TOKEN is required for --remote (proxy) mode. Proxy mode "
-            "forwards a personal access token as a Bearer header; "
-            "ANSIBLE_USERNAME/PASSWORD are not supported."
-        )
-
-    ssl_verify = resolve_ssl_verify(logger, url)
+    token = settings.token
+    assert token is not None
 
     try:
         anyio.run(_run_proxy_async, url, token, ssl_verify)

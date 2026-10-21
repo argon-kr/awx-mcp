@@ -1,0 +1,131 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # Forks must opt into their own OCI identity before enabling publication.
+    if: github.repository == 'lycorp-jp/awx-mcp'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --frozen --dev
+      - name: Validate tag, changelog and OCI identity before any publication
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        run: >-
+          uv run python scripts/prepare_release.py "$RELEASE_TAG"
+          --repository "$RELEASE_REPOSITORY" --output-dir .release
+      - name: Validate official Registry schema before any publication
+        run: |
+          curl --fail --silent --show-error --location https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json --output "$RUNNER_TEMP/server.schema.json"
+          uv run --with jsonschema==4.26.0 python -m jsonschema --instance .release/server.json "$RUNNER_TEMP/server.schema.json"
+      - id: version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+      - run: uv run pytest tests/ --cov=awx_mcp --cov-fail-under=100
+      - run: uv build
+      - name: Smoke test isolated wheel installation
+        shell: bash
+        run: |
+          wheels=(dist/*.whl)
+          uvx --isolated --from "${wheels[0]}" awx-mcp --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-files
+          include-hidden-files: true
+          path: |
+            dist/*
+            .release/*
+
+  image:
+    needs: build
+    if: github.repository == 'lycorp-jp/awx-mcp'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          push: false
+          tags: awx-mcp:smoke
+          build-args: VERSION=${{ needs.build.outputs.version }}
+      - run: docker run --rm awx-mcp:smoke --version
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          build-args: VERSION=${{ needs.build.outputs.version }}
+          tags: |
+            ghcr.io/lycorp-jp/awx-mcp:${{ needs.build.outputs.version }}
+            ghcr.io/lycorp-jp/awx-mcp:latest
+          provenance: mode=max
+          sbom: true
+
+  github-release:
+    needs: [build, image]
+    if: github.repository == 'lycorp-jp/awx-mcp'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-files
+      - uses: softprops/action-gh-release@v2
+        with:
+          body_path: .release/release-notes.md
+          files: |
+            dist/*
+            .release/server.json
+          fail_on_unmatched_files: true
+
+  mcp-registry:
+    needs: [build, image, github-release]
+    if: github.repository == 'lycorp-jp/awx-mcp'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-files
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27.2"
+          cache: false
+      - name: Build pinned official publisher from checksum-verified Go module
+        run: go install github.com/modelcontextprotocol/registry/cmd/publisher@v1.8.1
+      - name: Validate manifest with the Registry API
+        run: publisher validate .release/server.json
+      - name: Authenticate using GitHub OIDC
+        run: publisher login github-oidc
+      - name: Publish the already validated OCI manifest
+        run: publisher publish .release/server.json

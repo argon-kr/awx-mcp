@@ -6,17 +6,16 @@ Ansible MCP Server - Job Template Tools
 Job template CRUD, launch, copy, survey management, and credential association.
 """
 
-import json
 from typing import Any
 
 from ..client import get_ansible_client, handle_pagination
 from ..server import read_tool, write_tool
-from ..utils import parse_json_str, validate_json_str
+from ..utils import parse_json_str, to_json, validate_json_str
 
 
 @read_tool
 def list_job_templates(
-    template_name: str = None,
+    template_name: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> str:
@@ -47,7 +46,7 @@ def list_job_templates(
         templates = handle_pagination(
             client, "/api/v2/job_templates/", params, with_meta=True
         )
-        return json.dumps(templates, indent=2)
+        return to_json(templates)
 
 
 @read_tool
@@ -62,7 +61,7 @@ def get_job_template(template_id: int) -> str:
     """
     with get_ansible_client() as client:
         template = client.request("GET", f"/api/v2/job_templates/{template_id}/")
-        return json.dumps(template, indent=2)
+        return to_json(template)
 
 
 @write_tool()
@@ -107,17 +106,11 @@ def create_job_template(
         timeout: Job timeout in seconds (0 for no timeout)
     """
     if job_type not in ("run", "check"):
-        return json.dumps(
-            {"status": "error", "message": "Invalid job_type. Must be 'run' or 'check'"}
-        )
+        raise ValueError("Invalid job_type. Must be 'run' or 'check'")
     if verbosity not in range(6):
-        return json.dumps(
-            {"status": "error", "message": "Invalid verbosity. Must be 0-5"}
-        )
+        raise ValueError("Invalid verbosity. Must be 0-5")
 
-    error = validate_json_str(extra_vars, "extra_vars")
-    if error:
-        return error
+    validate_json_str(extra_vars, "extra_vars")
 
     with get_ansible_client() as client:
         data = {
@@ -138,26 +131,26 @@ def create_job_template(
         }
 
         response = client.request("POST", "/api/v2/job_templates/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(idempotent=True)
 def update_job_template(
     template_id: int,
-    name: str = None,
-    inventory_id: int = None,
-    project_id: int = None,
-    playbook: str = None,
-    description: str = None,
-    extra_vars: str = None,
-    job_type: str = None,
-    verbosity: int = None,
-    limit: str = None,
-    forks: int = None,
-    become_enabled: bool = None,
-    diff_mode: bool = None,
-    allow_simultaneous: bool = None,
-    timeout: int = None,
+    name: str | None = None,
+    inventory_id: int | None = None,
+    project_id: int | None = None,
+    playbook: str | None = None,
+    description: str | None = None,
+    extra_vars: str | None = None,
+    job_type: str | None = None,
+    verbosity: int | None = None,
+    limit: str | None = None,
+    forks: int | None = None,
+    become_enabled: bool | None = None,
+    diff_mode: bool | None = None,
+    allow_simultaneous: bool | None = None,
+    timeout: int | None = None,
 ) -> str:
     """Update an existing AWX job template.
 
@@ -184,17 +177,11 @@ def update_job_template(
         timeout: Job timeout in seconds (0 for no timeout)
     """
     if job_type is not None and job_type not in ("run", "check"):
-        return json.dumps(
-            {"status": "error", "message": "Invalid job_type. Must be 'run' or 'check'"}
-        )
+        raise ValueError("Invalid job_type. Must be 'run' or 'check'")
     if verbosity is not None and verbosity not in range(6):
-        return json.dumps(
-            {"status": "error", "message": "Invalid verbosity. Must be 0-5"}
-        )
+        raise ValueError("Invalid verbosity. Must be 0-5")
     if extra_vars is not None:
-        error = validate_json_str(extra_vars, "extra_vars")
-        if error:
-            return error
+        validate_json_str(extra_vars, "extra_vars")
 
     with get_ansible_client() as client:
         data: dict[str, Any] = {}
@@ -230,7 +217,7 @@ def update_job_template(
         response = client.request(
             "PATCH", f"/api/v2/job_templates/{template_id}/", data=data
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -247,7 +234,7 @@ def delete_job_template(template_id: int) -> str:
     """
     with get_ansible_client() as client:
         client.request("DELETE", f"/api/v2/job_templates/{template_id}/")
-        return json.dumps(
+        return to_json(
             {"status": "success", "message": f"Job template {template_id} deleted"}
         )
 
@@ -255,15 +242,15 @@ def delete_job_template(template_id: int) -> str:
 @write_tool(destructive=True)
 def launch_job(
     template_id: int,
-    extra_vars: str = None,
-    inventory: int = None,
-    credential: int = None,
-    limit: str = None,
-    job_tags: str = None,
-    skip_tags: str = None,
-    verbosity: int = None,
-    scm_branch: str = None,
-    diff_mode: bool = None,
+    extra_vars: str | None = None,
+    inventory: int | None = None,
+    credential: int | None = None,
+    limit: str | None = None,
+    job_tags: str | None = None,
+    skip_tags: str | None = None,
+    verbosity: int | None = None,
+    scm_branch: str | None = None,
+    diff_mode: bool | None = None,
 ) -> str:
     """Launch a single AWX playbook execution from a job template.
 
@@ -286,9 +273,7 @@ def launch_job(
         diff_mode: Override diff mode setting
     """
     if extra_vars is not None:
-        error = validate_json_str(extra_vars, "extra_vars")
-        if error:
-            return error
+        validate_json_str(extra_vars, "extra_vars")
 
     with get_ansible_client() as client:
         data: dict[str, Any] = {}
@@ -314,7 +299,7 @@ def launch_job(
         response = client.request(
             "POST", f"/api/v2/job_templates/{template_id}/launch/", data=data
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool()
@@ -335,7 +320,7 @@ def copy_job_template(template_id: int, new_name: str) -> str:
         response = client.request(
             "POST", f"/api/v2/job_templates/{template_id}/copy/", data=data
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 # =============================================================================
@@ -358,7 +343,7 @@ def get_job_template_survey(template_id: int) -> str:
         survey = client.request(
             "GET", f"/api/v2/job_templates/{template_id}/survey_spec/"
         )
-        return json.dumps(survey, indent=2)
+        return to_json(survey)
 
 
 @write_tool(idempotent=True)
@@ -375,15 +360,13 @@ def set_job_template_survey(template_id: int, survey_spec: str) -> str:
         survey_spec: JSON string of the survey spec
             (must include name, description, spec array)
     """
-    spec, error = parse_json_str(survey_spec, "survey_spec")
-    if error:
-        return error
+    spec = parse_json_str(survey_spec, "survey_spec")
 
     with get_ansible_client() as client:
         response = client.request(
             "POST", f"/api/v2/job_templates/{template_id}/survey_spec/", data=spec
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -400,7 +383,7 @@ def delete_job_template_survey(template_id: int) -> str:
     """
     with get_ansible_client() as client:
         client.request("DELETE", f"/api/v2/job_templates/{template_id}/survey_spec/")
-        return json.dumps(
+        return to_json(
             {
                 "status": "success",
                 "message": f"Survey deleted from job template {template_id}",
@@ -409,7 +392,7 @@ def delete_job_template_survey(template_id: int) -> str:
 
 
 # =============================================================================
-# Credential Association (NEW)
+# Credential Association
 # =============================================================================
 
 
@@ -441,7 +424,7 @@ def list_template_credentials(
             params,
             with_meta=True,
         )
-        return json.dumps(credentials, indent=2)
+        return to_json(credentials)
 
 
 @write_tool(idempotent=True)
@@ -462,7 +445,7 @@ def associate_credential_with_template(template_id: int, credential_id: int) -> 
         response = client.request(
             "POST", f"/api/v2/job_templates/{template_id}/credentials/", data=data
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -484,7 +467,7 @@ def disassociate_credential_from_template(template_id: int, credential_id: int) 
         client.request(
             "POST", f"/api/v2/job_templates/{template_id}/credentials/", data=data
         )
-        return json.dumps(
+        return to_json(
             {
                 "status": "success",
                 "message": (

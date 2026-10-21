@@ -1,0 +1,40 @@
+name: Container check
+
+on:
+  pull_request:
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - pyproject.toml
+      - uv.lock
+      - awx_mcp/**
+      - server.json
+      - .github/workflows/docker.yml
+      - .github/workflows/release.yml
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - pyproject.toml
+      - uv.lock
+      - awx_mcp/**
+      - .github/workflows/docker.yml
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: awx-mcp:smoke
+      - name: Check installed entrypoint without AWX credentials
+        run: docker run --rm awx-mcp:smoke --version

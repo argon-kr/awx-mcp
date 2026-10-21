@@ -6,22 +6,19 @@ Ansible MCP Server - Project Management Tools
 Project CRUD, SCM sync, playbook listing, and project update monitoring.
 """
 
-import json
 from typing import Any
 
 from ..client import (
-    DEFAULT_CONNECT_TIMEOUT,
-    DEFAULT_READ_TIMEOUT,
     get_ansible_client,
     handle_pagination,
 )
-from ..exceptions import AnsibleHTTPError
 from ..server import read_tool, write_tool
+from ..utils import to_json
 
 
 @read_tool
 def list_projects(
-    project_name: str = None,
+    project_name: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> str:
@@ -54,7 +51,7 @@ def list_projects(
         envelope = handle_pagination(
             client, "/api/v2/projects/", params, with_meta=True
         )
-        return json.dumps(envelope, indent=2)
+        return to_json(envelope)
 
 
 @read_tool
@@ -70,7 +67,7 @@ def get_project(project_id: int) -> str:
     """
     with get_ansible_client() as client:
         project = client.request("GET", f"/api/v2/projects/{project_id}/")
-        return json.dumps(project, indent=2)
+        return to_json(project)
 
 
 @write_tool()
@@ -78,9 +75,9 @@ def create_project(
     name: str,
     organization_id: int,
     scm_type: str,
-    scm_url: str = None,
-    scm_branch: str = None,
-    credential_id: int = None,
+    scm_url: str | None = None,
+    scm_branch: str | None = None,
+    credential_id: int | None = None,
     description: str = "",
 ) -> str:
     """Create an AWX project for playbook content.
@@ -100,20 +97,10 @@ def create_project(
         description: Description of the project
     """
     if scm_type not in ["", "git", "hg", "svn", "manual"]:
-        return json.dumps(
-            {
-                "status": "error",
-                "message": "Invalid SCM type. Must be one of: git, hg, svn, manual",
-            }
-        )
+        raise ValueError("Invalid SCM type. Must be one of: git, hg, svn, manual")
 
     if scm_type != "manual" and not scm_url:
-        return json.dumps(
-            {
-                "status": "error",
-                "message": "SCM URL is required for non-manual SCM types",
-            }
-        )
+        raise ValueError("SCM URL is required for non-manual SCM types")
 
     with get_ansible_client() as client:
         data = {
@@ -131,17 +118,17 @@ def create_project(
             data["credential"] = credential_id
 
         response = client.request("POST", "/api/v2/projects/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(idempotent=True)
 def update_project(
     project_id: int,
-    name: str = None,
-    scm_type: str = None,
-    scm_url: str = None,
-    scm_branch: str = None,
-    description: str = None,
+    name: str | None = None,
+    scm_type: str | None = None,
+    scm_url: str | None = None,
+    scm_branch: str | None = None,
+    description: str | None = None,
 ) -> str:
     """Update AWX project metadata and SCM settings.
 
@@ -158,12 +145,7 @@ def update_project(
         description: New description
     """
     if scm_type is not None and scm_type not in ["", "git", "hg", "svn", "manual"]:
-        return json.dumps(
-            {
-                "status": "error",
-                "message": "Invalid SCM type. Must be one of: git, hg, svn, manual",
-            }
-        )
+        raise ValueError("Invalid SCM type. Must be one of: git, hg, svn, manual")
 
     with get_ansible_client() as client:
         data = {}
@@ -179,7 +161,7 @@ def update_project(
             data["description"] = description
 
         response = client.request("PATCH", f"/api/v2/projects/{project_id}/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -195,7 +177,7 @@ def delete_project(project_id: int) -> str:
     """
     with get_ansible_client() as client:
         client.request("DELETE", f"/api/v2/projects/{project_id}/")
-        return json.dumps(
+        return to_json(
             {"status": "success", "message": f"Project {project_id} deleted"}
         )
 
@@ -213,11 +195,11 @@ def sync_project(project_id: int) -> str:
     """
     with get_ansible_client() as client:
         response = client.request("POST", f"/api/v2/projects/{project_id}/update/")
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 # =============================================================================
-# Project Playbooks (NEW)
+# Project Playbooks
 # =============================================================================
 
 
@@ -234,11 +216,11 @@ def list_project_playbooks(project_id: int) -> str:
     """
     with get_ansible_client() as client:
         playbooks = client.request("GET", f"/api/v2/projects/{project_id}/playbooks/")
-        return json.dumps(playbooks, indent=2)
+        return to_json(playbooks)
 
 
 # =============================================================================
-# Project Update Monitoring (NEW)
+# Project Update Monitoring
 # =============================================================================
 
 
@@ -274,7 +256,7 @@ def list_project_updates(
             params,
             with_meta=True,
         )
-        return json.dumps(envelope, indent=2)
+        return to_json(envelope)
 
 
 @read_tool
@@ -289,7 +271,7 @@ def get_project_update(update_id: int) -> str:
     """
     with get_ansible_client() as client:
         update = client.request("GET", f"/api/v2/project_updates/{update_id}/")
-        return json.dumps(update, indent=2)
+        return to_json(update)
 
 
 @write_tool(destructive=True)
@@ -307,7 +289,7 @@ def cancel_project_update(update_id: int) -> str:
         response = client.request(
             "POST", f"/api/v2/project_updates/{update_id}/cancel/"
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @read_tool
@@ -324,36 +306,11 @@ def get_project_update_stdout(update_id: int, format: str = "txt") -> str:
     """
     valid_formats = ["txt", "html", "json", "ansi", "txt_download", "ansi_download"]
     if format not in valid_formats:
-        return json.dumps(
-            {
-                "status": "error",
-                "message": (
-                    f"Invalid format. Must be one of: {', '.join(valid_formats)}"
-                ),
-            }
-        )
+        raise ValueError(f"Invalid format. Must be one of: {', '.join(valid_formats)}")
 
     with get_ansible_client() as client:
+        endpoint = f"/api/v2/project_updates/{update_id}/stdout/"
         if format != "json":
-            url = (
-                f"{client.base_url}/api/v2/project_updates/{update_id}"
-                f"/stdout/?format={format}"
-            )
-            client._validate_url(url)
-            response = client.session.get(
-                url,
-                headers=client.get_headers(),
-                timeout=(DEFAULT_CONNECT_TIMEOUT, DEFAULT_READ_TIMEOUT),
-            )
-            if response.status_code >= 400:
-                raise AnsibleHTTPError(
-                    f"Ansible API error: {response.status_code}"
-                    f" - {response.text[:500]}",
-                    status_code=response.status_code,
-                )
-            return json.dumps({"status": "success", "stdout": response.text})
-        else:
-            response = client.request(
-                "GET", f"/api/v2/project_updates/{update_id}/stdout/?format={format}"
-            )
-            return json.dumps(response, indent=2)
+            text = client.request_text("GET", endpoint, params={"format": format})
+            return to_json({"status": "success", "stdout": text})
+        return to_json(client.request("GET", endpoint, params={"format": "json"}))

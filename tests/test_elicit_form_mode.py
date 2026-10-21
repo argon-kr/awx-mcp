@@ -5,7 +5,7 @@
 Verifies that:
 - ``result.action == "decline"`` short-circuits and does NOT POST to AWX.
 - ``result.action == "cancel"`` short-circuits and does NOT POST to AWX.
-- Invalid JSON in elicited inputs returns the validation error envelope BEFORE POST.
+- Invalid JSON in elicited inputs fails the call (ValueError) BEFORE POST.
 - ``result.action == "accept"`` with valid JSON proceeds to POST.
 
 Strategy: Set ``AWX_MCP_ENABLE_CREDENTIAL_MANAGEMENT=true`` BEFORE importing the
@@ -23,12 +23,15 @@ import asyncio  # noqa: E402
 import json  # noqa: E402
 from unittest.mock import MagicMock, patch  # noqa: E402
 
+import pytest  # noqa: E402
+
 from awx_mcp.tools.credentials import (  # noqa: E402
     create_credential,
     update_credential,
 )
 from awx_mcp.tools.users import create_user, update_user  # noqa: E402
 from tests.conftest import (  # noqa: E402
+    TOOL_ERRORS,
     FakeContext,
     _FakeElicitData,
     _FakeElicitResult,
@@ -119,7 +122,7 @@ def test_create_user_cancel_short_circuits_no_POST():
 
 
 # ---------------------------------------------------------------------------
-# Invalid JSON path returns error BEFORE POST
+# Invalid JSON path fails the call BEFORE POST
 # ---------------------------------------------------------------------------
 
 
@@ -129,17 +132,16 @@ def test_create_credential_invalid_json_returns_error_before_POST():
         "awx_mcp.tools.credentials.get_ansible_client",
         new=fake_client_factory(api),
     ):
-        result = asyncio.run(
-            create_credential(
-                name="x",
-                credential_type_id=1,
-                organization_id=1,
-                ctx=_ctx("accept", inputs="not-valid-json{{"),
+        with pytest.raises(TOOL_ERRORS) as exc_info:
+            asyncio.run(
+                create_credential(
+                    name="x",
+                    credential_type_id=1,
+                    organization_id=1,
+                    ctx=_ctx("accept", inputs="not-valid-json{{"),
+                )
             )
-        )
-    payload = json.loads(result)
-    assert payload["status"] == "error"
-    assert "inputs" in payload["message"]
+    assert "inputs" in str(exc_info.value)
     api.request.assert_not_called()
 
 
@@ -149,16 +151,15 @@ def test_update_credential_invalid_json_returns_error_before_PATCH():
         "awx_mcp.tools.credentials.get_ansible_client",
         new=fake_client_factory(api),
     ):
-        result = asyncio.run(
-            update_credential(
-                credential_id=1,
-                ctx=_ctx("accept", inputs="not-json{{"),
-                update_inputs=True,
+        with pytest.raises(TOOL_ERRORS) as exc_info:
+            asyncio.run(
+                update_credential(
+                    credential_id=1,
+                    ctx=_ctx("accept", inputs="not-json{{"),
+                    update_inputs=True,
+                )
             )
-        )
-    payload = json.loads(result)
-    assert payload["status"] == "error"
-    assert "inputs" in payload["message"]
+    assert "inputs" in str(exc_info.value)
     api.request.assert_not_called()
 
 

@@ -7,10 +7,9 @@ Role listing, role assignment (grant/revoke) for users and teams,
 and object role inspection.
 """
 
-import json
-
 from ..client import get_ansible_client, handle_pagination
 from ..server import read_tool, write_tool
+from ..utils import to_json
 
 
 @read_tool
@@ -32,7 +31,7 @@ def list_roles(limit: int = 20, offset: int = 0) -> str:
     with get_ansible_client() as client:
         params = {"limit": limit, "offset": offset}
         envelope = handle_pagination(client, "/api/v2/roles/", params, with_meta=True)
-        return json.dumps(envelope, indent=2)
+        return to_json(envelope)
 
 
 @read_tool
@@ -48,11 +47,11 @@ def get_role(role_id: int) -> str:
     """
     with get_ansible_client() as client:
         role = client.request("GET", f"/api/v2/roles/{role_id}/")
-        return json.dumps(role, indent=2)
+        return to_json(role)
 
 
 # =============================================================================
-# Role Assignment (NEW)
+# Role Assignment
 # =============================================================================
 
 
@@ -71,7 +70,7 @@ def grant_role_to_user(role_id: int, user_id: int) -> str:
     with get_ansible_client() as client:
         data = {"id": user_id}
         response = client.request("POST", f"/api/v2/roles/{role_id}/users/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -90,7 +89,7 @@ def revoke_role_from_user(role_id: int, user_id: int) -> str:
     with get_ansible_client() as client:
         data = {"id": user_id, "disassociate": True}
         client.request("POST", f"/api/v2/roles/{role_id}/users/", data=data)
-        return json.dumps(
+        return to_json(
             {
                 "status": "success",
                 "message": f"Role {role_id} revoked from user {user_id}",
@@ -112,7 +111,7 @@ def grant_role_to_team(role_id: int, team_id: int) -> str:
     with get_ansible_client() as client:
         data = {"id": team_id}
         response = client.request("POST", f"/api/v2/roles/{role_id}/teams/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -130,7 +129,7 @@ def revoke_role_from_team(role_id: int, team_id: int) -> str:
     with get_ansible_client() as client:
         data = {"id": team_id, "disassociate": True}
         client.request("POST", f"/api/v2/roles/{role_id}/teams/", data=data)
-        return json.dumps(
+        return to_json(
             {
                 "status": "success",
                 "message": f"Role {role_id} revoked from team {team_id}",
@@ -169,13 +168,8 @@ def list_object_roles(
         "credentials",
     ]
     if resource_type not in valid_types:
-        return json.dumps(
-            {
-                "status": "error",
-                "message": (
-                    f"Invalid resource_type. Must be one of: {', '.join(valid_types)}"
-                ),
-            }
+        raise ValueError(
+            f"Invalid resource_type. Must be one of: {', '.join(valid_types)}"
         )
 
     with get_ansible_client() as client:
@@ -186,4 +180,4 @@ def list_object_roles(
             params,
             with_meta=True,
         )
-        return json.dumps(envelope, indent=2)
+        return to_json(envelope)

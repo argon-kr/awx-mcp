@@ -1,7 +1,28 @@
 # SPDX-License-Identifier: Apache-2.0
 
+import functools
+import inspect
 import json
 import re
+from collections.abc import Callable
+from contextlib import AbstractContextManager
+from typing import Any
+
+
+def truthy(value: str | None) -> bool:
+    """Parse a boolean env/header value: ``true``/``1``/``yes`` (any case)."""
+    return (value or "").strip().lower() in ("true", "1", "yes")
+
+
+def package_version() -> str:
+    """Installed awx-mcp distribution version, or ``"unknown"`` from a raw tree."""
+    try:
+        from importlib.metadata import version
+
+        return version("awx-mcp")
+    except Exception:  # noqa: BLE001 — metadata absent in an uninstalled checkout
+        return "unknown"
+
 
 # --- Secret masking -----------------------------------------------------------
 # Shared by the usage instrumentation and the API client so that bearer tokens /
@@ -23,28 +44,64 @@ def mask_secrets(text: str) -> str:
     return text
 
 
-def validate_json_str(value: str, param_name: str) -> str | None:
+def to_json(obj: object) -> str:
+    """Serialize a tool result compactly for the MCP text content block.
+
+    Compact separators and no indentation: tool results go straight into the
+    model's context, where pretty-printing whitespace is pure token cost.
+    ``ensure_ascii=False`` keeps non-ASCII names (e.g. Korean/Japanese host or
+    template names) readable instead of ``\\uXXXX`` escapes.
+    """
+    return json.dumps(obj, separators=(",", ":"), ensure_ascii=False)
+
+
+def validate_json_str(value: str, param_name: str) -> None:
     """Validate a JSON string parameter.
 
-    Returns MCP error response if invalid, None if valid.
+    Raises ``ValueError`` (surfaced to the client as an ``isError`` tool result
+    by ``server._surface_tool_errors``) when ``value`` is not valid JSON.
+    """
+    parse_json_str(value, param_name)
+
+
+def parse_json_str(value: str, param_name: str) -> Any:
+    """Parse a JSON string parameter.
+
+    Returns the parsed value. Raises ``ValueError`` naming ``param_name`` when
+    ``value`` is not valid JSON, so the tool call fails with ``isError`` instead
+    of returning an error-shaped payload that reads as success.
     """
     try:
-        json.loads(value)
-        return None
-    except json.JSONDecodeError:
-        return json.dumps(
-            {"status": "error", "message": f"Invalid JSON in {param_name}"}
-        )
+        return json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON in {param_name}: {exc.msg}") from exc
 
 
-def parse_json_str(value: str, param_name: str) -> tuple:
-    """Parse a JSON string.
+def wrap_tool_call(
+    func: Callable[..., Any],
+    around: Callable[[dict[str, Any]], AbstractContextManager[Any]],
+) -> Callable[..., Any]:
+    """Run every call of ``func`` (sync or async) inside ``around(kwargs)``.
 
-    Returns (parsed_data, None) on success, (None, error_response) on failure.
+    The one place that knows how to wrap both sync and async tools. ``around``
+    is a context-manager factory receiving the call's keyword arguments (MCP
+    tools are always invoked by keyword); it may run checks on enter, observe
+    or translate exceptions, and record on exit. ``functools.wraps`` preserves
+    the signature, docstring and annotations so MCP schema generation sees the
+    original tool.
     """
-    try:
-        return json.loads(value), None
-    except json.JSONDecodeError:
-        return None, json.dumps(
-            {"status": "error", "message": f"Invalid JSON in {param_name}"}
-        )
+    if inspect.iscoroutinefunction(func):
+
+        @functools.wraps(func)
+        async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+            with around(kwargs):
+                return await func(*args, **kwargs)
+
+        return async_wrapper
+
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        with around(kwargs):
+            return func(*args, **kwargs)
+
+    return wrapper

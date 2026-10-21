@@ -4,11 +4,11 @@
 Ansible MCP Server - Instance & Instance Group Tools
 """
 
-import json
 from typing import Any
 
 from ..client import get_ansible_client, handle_pagination
 from ..server import read_tool
+from ..utils import to_json
 
 # The system /api/v2/instances/ and /api/v2/instance_groups/ collections require
 # system-auditor/admin RBAC; non-privileged tokens get an empty list (HTTP 200,
@@ -32,7 +32,7 @@ def _ping_topology(client):
 
 @read_tool
 def list_instances(
-    hostname: str = None,
+    hostname: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> str:
@@ -75,17 +75,16 @@ def list_instances(
         if not search and not instances["results"]:
             topology = _ping_topology(client).get("instances", [])
             if topology:
-                return json.dumps(
+                return to_json(
                     {
                         "results": topology,
                         "_source": "/api/v2/ping/",
                         "_note": _PING_FALLBACK_NOTE.format(
                             endpoint="/api/v2/instances/"
                         ),
-                    },
-                    indent=2,
+                    }
                 )
-        return json.dumps(instances, indent=2)
+        return to_json(instances)
 
 
 @read_tool
@@ -101,12 +100,12 @@ def get_instance(instance_id: int) -> str:
     """
     with get_ansible_client() as client:
         instance = client.request("GET", f"/api/v2/instances/{instance_id}/")
-        return json.dumps(instance, indent=2)
+        return to_json(instance)
 
 
 @read_tool
 def list_instance_groups(
-    group_name: str = None,
+    group_name: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> str:
@@ -149,17 +148,16 @@ def list_instance_groups(
         if not search and not groups["results"]:
             topology = _ping_topology(client).get("instance_groups", [])
             if topology:
-                return json.dumps(
+                return to_json(
                     {
                         "results": topology,
                         "_source": "/api/v2/ping/",
                         "_note": _PING_FALLBACK_NOTE.format(
                             endpoint="/api/v2/instance_groups/"
                         ),
-                    },
-                    indent=2,
+                    }
                 )
-        return json.dumps(groups, indent=2)
+        return to_json(groups)
 
 
 @read_tool
@@ -175,4 +173,4 @@ def get_instance_group(group_id: int) -> str:
     """
     with get_ansible_client() as client:
         group = client.request("GET", f"/api/v2/instance_groups/{group_id}/")
-        return json.dumps(group, indent=2)
+        return to_json(group)

@@ -4,16 +4,16 @@
 Ansible MCP Server - Organization Management Tools
 """
 
-import json
 from typing import Any
 
 from ..client import get_ansible_client, handle_pagination
 from ..server import read_tool, write_tool
+from ..utils import to_json
 
 
 @read_tool
 def list_organizations(
-    organization_name: str = None,
+    organization_name: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> str:
@@ -46,7 +46,7 @@ def list_organizations(
         envelope = handle_pagination(
             client, "/api/v2/organizations/", params, with_meta=True
         )
-        return json.dumps(envelope, indent=2)
+        return to_json(envelope)
 
 
 @read_tool
@@ -64,7 +64,7 @@ def get_organization(organization_id: int) -> str:
         organization = client.request(
             "GET", f"/api/v2/organizations/{organization_id}/"
         )
-        return json.dumps(organization, indent=2)
+        return to_json(organization)
 
 
 @write_tool()
@@ -72,7 +72,7 @@ def create_organization(
     name: str,
     description: str = "",
     max_hosts: int = 0,
-    default_environment: int = None,
+    default_environment: int | None = None,
 ) -> str:
     """Create an AWX organization.
 
@@ -92,16 +92,16 @@ def create_organization(
         if default_environment is not None:
             data["default_environment"] = default_environment
         response = client.request("POST", "/api/v2/organizations/", data=data)
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(idempotent=True)
 def update_organization(
     organization_id: int,
-    name: str = None,
-    description: str = None,
-    max_hosts: int = None,
-    default_environment: int = None,
+    name: str | None = None,
+    description: str | None = None,
+    max_hosts: int | None = None,
+    default_environment: int | None = None,
 ) -> str:
     """Update an AWX organization.
 
@@ -131,7 +131,7 @@ def update_organization(
         response = client.request(
             "PATCH", f"/api/v2/organizations/{organization_id}/", data=data
         )
-        return json.dumps(response, indent=2)
+        return to_json(response)
 
 
 @write_tool(destructive=True)
@@ -147,6 +147,6 @@ def delete_organization(organization_id: int) -> str:
     """
     with get_ansible_client() as client:
         client.request("DELETE", f"/api/v2/organizations/{organization_id}/")
-        return json.dumps(
+        return to_json(
             {"status": "success", "message": f"Organization {organization_id} deleted"}
         )
