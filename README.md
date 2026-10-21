@@ -138,6 +138,10 @@ uvx --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp
 
 `uvx` fetches, builds, and caches the repository. Use `--refresh` once to update the cached main branch. For development: `uv run --directory /path/to/awx-mcp awx-mcp --stdio`. Check the installed version with `awx-mcp --version` in that environment.
 
+### Release downloads
+
+After a stable `vMAJOR.MINOR.PATCH` tag passes release validation, GitHub Releases provides its CHANGELOG notes, wheel (`.whl`), source distribution (`.tar.gz`), `release-notes.md` and `SHA256SUMS`. These Python packages require Python >= 3.10 and dependency installation. Forks publish downloads in their own Releases, while GHCR and MCP Registry publication remains upstream-only. See [release and download instructions](docs/releases.md). Downloads are available after the GitHub Release job succeeds.
+
 ### Docker / Podman
 
 Build the container from a local checkout now. The explicit `--stdio` is required here because the image’s default command runs a central HTTP server.

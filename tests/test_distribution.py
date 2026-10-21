@@ -157,7 +157,7 @@ def test_prepare_rejects_non_stable_semver_before_writing_output(tmp_path, tag):
     assert not (root / "output").exists()
 
 
-@pytest.mark.parametrize("mismatch", ["tag", "manifest", "image", "unreleased", "fork"])
+@pytest.mark.parametrize("mismatch", ["tag", "manifest", "image", "unreleased"])
 def test_prepare_rejects_release_mismatch_before_writing_output(tmp_path, mismatch):
     root = release_fixture(tmp_path)
     tag = "v1.0.0"
@@ -176,12 +176,51 @@ def test_prepare_rejects_release_mismatch_before_writing_output(tmp_path, mismat
         (root / "CHANGELOG.md").write_text(
             changelog.replace("## [Unreleased]", "## [Unreleased]\n\n- Pending change.")
         )
-    else:
-        repository = "someone/awx-mcp"
     result = prepare(root, tag, repository)
     assert result.returncode != 0
     assert not (root / "output").exists()
     assert result.stderr.strip()
+
+
+@pytest.mark.parametrize("repository", ["argon-kr/awx-mcp", "someone/awx-mcp"])
+def test_fork_release_prepares_notes_without_publishing_upstream_identity(
+    tmp_path, repository
+):
+    root = release_fixture(tmp_path)
+    # A fork's download-only release must not depend on an upstream OCI manifest.
+    (root / "server.json").unlink()
+    result = prepare(root, repository=repository)
+    assert result.returncode == 0, result.stderr
+    assert "Release improvements." in (root / "output/release-notes.md").read_text()
+    assert not (root / "output/server.json").exists()
+
+
+@pytest.mark.parametrize(
+    "mismatch, error",
+    [
+        ("tag", "does not match pyproject.toml version"),
+        ("unreleased", "Cut a dated release before tagging"),
+        ("unstable", "Release tag must be stable SemVer"),
+    ],
+)
+def test_fork_release_still_rejects_unfinished_or_mismatched_versions(
+    tmp_path, mismatch, error
+):
+    root = release_fixture(tmp_path)
+    tag = "v1.0.0"
+    if mismatch == "tag":
+        tag = "v1.0.1"
+    elif mismatch == "unstable":
+        tag = "v1.0.0-rc.1"
+    else:
+        changelog = (root / "CHANGELOG.md").read_text()
+        (root / "CHANGELOG.md").write_text(
+            changelog.replace("## [Unreleased]", "## [Unreleased]\n\n- Pending change.")
+        )
+    result = prepare(root, tag, repository="argon-kr/awx-mcp")
+    assert result.returncode != 0
+    assert not (root / "output").exists()
+    assert error in result.stderr
 
 
 def test_changelog_extractor_rejects_missing_and_duplicate_versions(tmp_path):

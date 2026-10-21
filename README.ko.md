@@ -138,6 +138,10 @@ uvx --from git+https://github.com/lycorp-jp/awx-mcp awx-mcp
 
 `uvx`는 저장소를 가져와 빌드한 뒤 캐시합니다. 캐시된 main branch를 갱신하려면 한 번 `--refresh`를 추가하세요. 개발 환경에서는 `uv run --directory /path/to/awx-mcp awx-mcp --stdio`를 사용합니다. 해당 환경에서 `awx-mcp --version`으로 설치된 버전을 확인할 수 있습니다.
 
+### Release 다운로드
+
+안정 버전의 `vMAJOR.MINOR.PATCH` tag가 release 검증을 통과하면 GitHub Releases에 해당 CHANGELOG의 내용과 wheel(`.whl`), source distribution(`.tar.gz`), `release-notes.md`, `SHA256SUMS`가 게시됩니다. Python 패키지이므로 Python >= 3.10과 의존성 설치가 필요합니다. Fork는 자신의 Releases에 다운로드 파일을 게시하며, GHCR와 MCP Registry 게시는 upstream에서만 실행합니다. 자세한 절차는 [release 및 다운로드 안내](docs/releases.md)를 참고하세요. 다운로드 파일은 GitHub Release job이 성공한 뒤 사용할 수 있습니다.
+
 ### Docker / Podman
 
 지금은 로컬 checkout에서 컨테이너를 빌드할 수 있습니다. 이미지의 기본 명령은 중앙 HTTP 서버이므로 아래 stdio 실행에서는 `--stdio`를 명시해야 합니다.
