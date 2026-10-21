@@ -1,4 +1,4 @@
-"""Validate a tag against package, changelog and OCI metadata before publishing."""
+"""Validate GitHub release notes and, upstream only, OCI publication metadata."""
 
 import argparse
 import json
@@ -10,11 +10,7 @@ from changelog_section import release_section, sections
 REPOSITORY = "lycorp-jp/awx-mcp"
 
 
-def prepare(root: Path, tag: str, repository: str) -> tuple[str, dict]:
-    if repository != REPOSITORY:
-        raise ValueError(
-            "Publishing upstream identity is restricted to lycorp-jp/awx-mcp."
-        )
+def prepare(root: Path, tag: str, repository: str) -> tuple[str, dict | None]:
     if not re.fullmatch(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", tag):
         raise ValueError(
             "Release tag must be stable SemVer vMAJOR.MINOR.PATCH "
@@ -46,6 +42,9 @@ def prepare(root: Path, tag: str, repository: str) -> tuple[str, dict]:
                     "Unreleased contains changes. Cut a dated release before tagging."
                 )
     notes = release_section(changelog, version)
+    # Forks can publish their own GitHub downloads, never the upstream OCI identity.
+    if repository != REPOSITORY:
+        return notes, None
     manifest = json.loads((root / "server.json").read_text())
     if (
         manifest.get("version") != version
@@ -81,7 +80,10 @@ def main() -> None:
         parser.exit(1, f"Release preparation failed: {exc}\n")
     args.output_dir.mkdir(parents=True, exist_ok=True)
     (args.output_dir / "release-notes.md").write_text(notes)
-    (args.output_dir / "server.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    if manifest is not None:
+        (args.output_dir / "server.json").write_text(
+            json.dumps(manifest, indent=2) + "\n"
+        )
     print(f"Validated release {args.tag}.")
 
 

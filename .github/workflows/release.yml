@@ -13,8 +13,6 @@ concurrency:
 
 jobs:
   build:
-    # Forks must opt into their own OCI identity before enabling publication.
-    if: github.repository == 'lycorp-jp/awx-mcp'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -22,7 +20,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
       - run: uv sync --frozen --dev
-      - name: Validate tag, changelog and OCI identity before any publication
+      - name: Validate tag, changelog and upstream OCI identity before publication
         env:
           RELEASE_TAG: ${{ github.ref_name }}
           RELEASE_REPOSITORY: ${{ github.repository }}
@@ -30,6 +28,7 @@ jobs:
           uv run python scripts/prepare_release.py "$RELEASE_TAG"
           --repository "$RELEASE_REPOSITORY" --output-dir .release
       - name: Validate official Registry schema before any publication
+        if: github.repository == 'lycorp-jp/awx-mcp'
         run: |
           curl --fail --silent --show-error --location https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json --output "$RUNNER_TEMP/server.schema.json"
           uv run --with jsonschema==4.26.0 python -m jsonschema --instance .release/server.json "$RUNNER_TEMP/server.schema.json"
@@ -39,11 +38,33 @@ jobs:
         run: echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
       - run: uv run pytest tests/ --cov=awx_mcp --cov-fail-under=100
       - run: uv build
-      - name: Smoke test isolated wheel installation
+      - name: Smoke test isolated wheel and source installations
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: |
           wheels=(dist/*.whl)
-          uvx --isolated --from "${wheels[0]}" awx-mcp --version
+          sources=(dist/*.tar.gz)
+          for package in "${wheels[0]}" "${sources[0]}"; do
+            actual=$(uvx --no-cache --isolated --from "$package" awx-mcp --version)
+            test "$actual" = "awx-mcp $RELEASE_VERSION"
+          done
+      - name: Stage downloads and verify SHA256 checksums
+        shell: bash
+        env:
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        run: |
+          cp .release/release-notes.md dist/release-notes.md
+          (
+            cd dist
+            files=(*.whl *.tar.gz release-notes.md)
+            if [[ "$RELEASE_REPOSITORY" == 'lycorp-jp/awx-mcp' ]]; then
+              cp ../.release/server.json server.json
+              files+=(server.json)
+            fi
+            sha256sum -- "${files[@]}" > SHA256SUMS
+            sha256sum --check SHA256SUMS
+          )
       - uses: actions/upload-artifact@v4
         with:
           name: release-files
@@ -54,6 +75,7 @@ jobs:
 
   image:
     needs: build
+    # Fork GitHub downloads never publish the upstream OCI/Registry identity.
     if: github.repository == 'lycorp-jp/awx-mcp'
     runs-on: ubuntu-latest
     permissions:
@@ -89,8 +111,7 @@ jobs:
           sbom: true
 
   github-release:
-    needs: [build, image]
-    if: github.repository == 'lycorp-jp/awx-mcp'
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -100,10 +121,9 @@ jobs:
           name: release-files
       - uses: softprops/action-gh-release@v2
         with:
+          name: v${{ needs.build.outputs.version }}
           body_path: .release/release-notes.md
-          files: |
-            dist/*
-            .release/server.json
+          files: dist/*
           fail_on_unmatched_files: true
 
   mcp-registry:

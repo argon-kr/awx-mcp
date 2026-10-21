@@ -17,6 +17,10 @@ independently of the tested AWX version (see [Versioning](#versioning)).
   multi-platform GHCR images, and MCP Registry publication, with manifest and
   installation checks. No release, image, or Registry entry has been published
   by this preparation.
+- GitHub Releases in upstream and forks include the wheel, source distribution,
+  downloadable changelog notes and SHA256 checksums after SemVer validation,
+  tests and isolated package installation checks. Download publication does not
+  depend on the upstream-only GHCR and MCP Registry jobs.
 - Explicit `--stdio` and `--version` CLI options.
 - `--toolsets` / `AWX_MCP_TOOLSETS` selection and a `--read-only` CLI flag for
   local and central servers. Proxy mode rejects toolset subsets rather than
